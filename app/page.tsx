@@ -158,12 +158,13 @@ function playTone(kind: 'card' | 'block' | 'hit' | 'start', enabled: boolean) {
   oscillator.stop(context.currentTime + 0.17);
 }
 
-function CardFace({ card, compact = false, selected = false, disabled = false, index = 0, onClick, table = false }: {
+function CardFace({ card, compact = false, selected = false, disabled = false, index = 0, fanOffset = 0, onClick, table = false }: {
   card: Card;
   compact?: boolean;
   selected?: boolean;
   disabled?: boolean;
   index?: number;
+  fanOffset?: number;
   onClick?: () => void;
   table?: boolean;
 }) {
@@ -174,7 +175,7 @@ function CardFace({ card, compact = false, selected = false, disabled = false, i
   return (
     <Tag
       className={`game-card card-${card.suit} ${compact ? 'compact-card' : ''} ${selected ? 'is-selected' : ''} ${disabled ? 'is-disabled' : ''} ${table ? 'table-card' : ''}`}
-      style={{ '--card-index': index } as CSSProperties}
+      style={{ '--card-index': index, '--deal-index': Math.min(index, 12), '--fan-offset': fanOffset } as CSSProperties}
       onClick={onClick}
       disabled={onClick ? disabled : undefined}
       aria-pressed={onClick ? selected : undefined}
@@ -189,9 +190,9 @@ function CardFace({ card, compact = false, selected = false, disabled = false, i
   );
 }
 
-function CardBack({ index = 0, small = false }: { index?: number; small?: boolean }) {
+function CardBack({ index = 0, fanOffset = 0, small = false }: { index?: number; fanOffset?: number; small?: boolean }) {
   return (
-    <span className={`card-back ${small ? 'small-back' : ''}`} style={{ '--card-index': index } as CSSProperties}>
+    <span className={`card-back ${small ? 'small-back' : ''}`} style={{ '--card-index': index, '--deal-index': Math.min(index, 9), '--fan-offset': fanOffset } as CSSProperties}>
       <i>P</i>
     </span>
   );
@@ -454,6 +455,7 @@ export default function Home() {
   if (!game) return null;
   const self = game.players[game.viewer];
   const opponent = game.players[1 - game.viewer];
+  const visibleOpponentCards = opponent.hand.slice(0, 10);
   const selectedCard = self.hand.find((card) => card.id === selected) ?? null;
   const defending = game.phase === 'defend';
   const activeAttackIndex = defending || game.phase === 'result' ? Math.min(game.defenseIndex, game.attacks.length - 1) : game.attacks.length - 1;
@@ -501,7 +503,7 @@ export default function Home() {
       <section className="opponent-zone">
         <PlayerStatus player={opponent} side="opponent" />
         <div className="hidden-hand" aria-label={`${opponent.hand.length} cartas ocultas del rival`}>
-          {opponent.hand.map((card, index) => <CardBack key={card.id} index={index} small />)}
+          {visibleOpponentCards.map((card, index) => <CardBack key={card.id} index={index} fanOffset={index - (visibleOpponentCards.length - 1) / 2} small />)}
         </div>
       </section>
 
@@ -539,13 +541,17 @@ export default function Home() {
 
       <section className="player-zone">
         <PlayerStatus player={self} side="self" />
-        <div className="player-hand" aria-label={`Mano de ${self.name}`}>
+        <div
+          className={`player-hand ${self.hand.length > 10 ? 'dense-hand' : ''} ${self.hand.length > 16 ? 'super-dense-hand' : ''}`}
+          style={{ '--hand-size': Math.max(self.hand.length, 1) } as CSSProperties}
+          aria-label={`Mano de ${self.name}`}
+        >
           {self.hand.map((card, index) => {
             const invalidDefense = defending && !!currentAttack && !game.secretAttack && !canDefend(card, currentAttack, game.trump);
             const attackPhase = game.phase === 'attack' || game.phase === 'chain';
             const playableAttack = isAttackCard(card);
             const invalidAttack = attackPhase && (!playableAttack || (game.phase === 'chain' && (game.attacks.length >= MAX_ATTACKS || !canThrowIn(card, game.attacks, game.defenses))));
-            return <CardFace card={card} key={card.id} index={index} selected={selected === card.id} disabled={game.phase === 'result'} onClick={() => setSelected(selected === card.id ? null : card.id)} compact={invalidDefense || invalidAttack} />;
+            return <CardFace card={card} key={card.id} index={index} fanOffset={index - (self.hand.length - 1) / 2} selected={selected === card.id} disabled={game.phase === 'result'} onClick={() => setSelected(selected === card.id ? null : card.id)} compact={invalidDefense || invalidAttack} />;
           })}
         </div>
         <div className="action-dock">

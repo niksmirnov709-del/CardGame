@@ -216,7 +216,7 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 .card-count-row b { margin-left: 3px; color: var(--gold); font-size: 9px; }
 
 .hidden-hand { position: relative; width: min(430px, 58vw); height: 116px; perspective: 900px; }
-.hidden-hand .small-back { position: absolute; left: calc(50% - 37px); top: -23px; width: 72px; transform-origin: 50% 170%; transform: rotate(calc((var(--card-index) - 2.5) * 7deg)) translateX(calc((var(--card-index) - 2.5) * 27px)); animation: deal-opponent .38s calc(var(--card-index) * 55ms) both ease-out; }
+.hidden-hand .small-back { position: absolute; left: calc(50% - 37px); top: -23px; width: 72px; transform-origin: 50% 170%; transform: rotate(calc(var(--fan-offset) * 5deg)) translateX(calc(var(--fan-offset) * 18px)); animation: deal-opponent .38s calc(var(--deal-index) * 55ms) both ease-out; }
 @keyframes deal-opponent { from { opacity: 0; transform: translate(-260px, -100px) rotateY(70deg); } }
 
 .arena { position: relative; display: grid; grid-template-columns: 120px 1fr 110px; align-items: center; min-height: 0; border-top: 1px solid #dda95036; border-bottom: 1px solid #dda95036; perspective: 1100px; }
@@ -253,9 +253,12 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 .turn-panel span { overflow: hidden; color: #c7c0bb; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 
 .player-zone { align-items: flex-start; }
-.player-hand { position: relative; display: flex; justify-content: center; align-items: flex-start; width: min(740px, 83vw); height: 100%; padding-top: 15px; perspective: 1200px; }
-.player-hand .game-card { flex: 0 0 auto; width: clamp(76px, 8.8vw, 106px); margin-left: clamp(-28px, -2.2vw, -14px); cursor: pointer; transform: rotate(calc((var(--card-index) - 2.5) * 3deg)) translateY(calc((var(--card-index) - 2.5) * (var(--card-index) - 2.5) * 1px)); transition: transform .18s ease, filter .18s ease, opacity .18s ease; animation: deal-card .38s calc(var(--card-index) * 60ms) both ease-out; }
-.player-hand .game-card:first-child { margin-left: 0; }
+.player-hand { --hand-size: 8; --hand-card-width: clamp(76px, 8.8vw, 106px); position: relative; display: grid; grid-template-columns: repeat(var(--hand-size), minmax(0, 1fr)); align-items: flex-start; width: min(740px, 83vw); height: 100%; padding: 15px var(--hand-card-width) 0 0; box-sizing: border-box; perspective: 1200px; }
+.player-hand .game-card { justify-self: start; width: var(--hand-card-width); max-width: none; margin: 0; cursor: pointer; transform: rotate(calc(var(--fan-offset) * 2.4deg)) translateY(calc(var(--fan-offset) * var(--fan-offset) * .8px)); transition: transform .18s ease, filter .18s ease, opacity .18s ease; animation: deal-card .38s calc(var(--deal-index) * 45ms) both ease-out; }
+.player-hand.dense-hand { --hand-card-width: clamp(70px, 7.8vw, 92px); }
+.player-hand.dense-hand .game-card { transform: rotate(calc(var(--fan-offset) * 1.25deg)) translateY(calc(var(--fan-offset) * var(--fan-offset) * .35px)); }
+.player-hand.super-dense-hand { --hand-card-width: clamp(64px, 6.8vw, 78px); }
+.player-hand.super-dense-hand .game-card { transform: rotate(calc(var(--fan-offset) * .65deg)) translateY(calc(var(--fan-offset) * var(--fan-offset) * .16px)); }
 .player-hand .game-card:hover:not(:disabled), .player-hand .game-card:focus-visible, .player-hand .game-card.is-selected { z-index: 15; transform: translateY(-25px) rotate(0) rotateX(4deg) scale(1.06); filter: brightness(1.12); }
 .player-hand .game-card.is-selected { box-shadow: 0 0 0 4px var(--gold), 0 18px 28px #000c, inset 0 0 0 2px #ffffff2a; }
 .player-hand .game-card.is-disabled { opacity: .62; filter: grayscale(.45); }
@@ -338,8 +341,10 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
   .turn-panel b { font-size: 10px; }
   .turn-panel span { font-size: 9px; }
   .player-badge.self { bottom: 2px; }
-  .player-hand { width: 97vw; padding-top: 11px; align-items: flex-start; }
-  .player-hand .game-card { width: 78px; margin-left: -27px; border-width: 4px; }
+  .player-hand { --hand-card-width: 78px; width: 97vw; padding: 11px var(--hand-card-width) 0 0; align-items: flex-start; }
+  .player-hand.dense-hand { --hand-card-width: 70px; }
+  .player-hand.super-dense-hand { --hand-card-width: 62px; }
+  .player-hand .game-card { border-width: 4px; }
   .player-hand .game-card .card-copy { inset-inline: 5px; }
   .player-hand .game-card .card-copy strong { font-size: 9px; }
   .player-hand .game-card .card-copy small { font-size: 7px; }
