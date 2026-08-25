@@ -148,8 +148,9 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 .card-art { position: absolute; inset: 14% 12% 37%; display: grid; place-items: center; }
 .card-art i { position: relative; z-index: 2; display: grid; place-items: center; width: 57px; height: 57px; border: 2px solid #ffffffcf; border-radius: 50%; color: white; font-size: 38px; font-style: normal; font-weight: 1000; text-shadow: 0 3px #0005; box-shadow: 0 0 0 5px #ffffff18, 0 9px 18px #0005; }
 .card-art em { position: absolute; width: 70px; height: 70px; border: 1px solid #ffffff5e; transform: rotate(45deg); }
-.card-copy { position: absolute; inset: auto 7px 9px; display: flex; flex-direction: column; align-items: center; z-index: 3; text-transform: uppercase; }
-.card-copy strong { font-size: 10px; line-height: 1.1; }
+.card-copy { position: absolute; inset: auto 7px 9px; display: flex; min-width: 0; flex-direction: column; align-items: center; z-index: 3; text-align: center; text-transform: uppercase; }
+.card-copy strong, .card-copy small { display: block; width: 100%; max-width: 100%; overflow: hidden; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
+.card-copy strong { font-size: 10px; }
 .card-copy small { margin-top: 2px; color: #ffffffb9; font-size: 8px; font-weight: 800; }
 .card-circulo { --card-color: linear-gradient(145deg, #e55252, #8c253d); }
 .card-triangulo { --card-color: linear-gradient(145deg, #e2ad3d, #87552b); }
@@ -347,6 +348,9 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
   .player-badge.self { bottom: 2px; }
   .player-hand { width: 97vw; padding-top: 11px; align-items: flex-start; }
   .player-hand .game-card { width: 78px; margin-left: -27px; border-width: 4px; }
+  .player-hand .game-card .card-copy { inset-inline: 5px; }
+  .player-hand .game-card .card-copy strong { font-size: 9px; }
+  .player-hand .game-card .card-copy small { font-size: 7px; }
   .player-hand .game-card .card-art i { width: 44px; height: 44px; font-size: 27px; }
   .player-hand .game-card .card-art em { width: 53px; height: 53px; }
   .player-hand .game-card:hover:not(:disabled), .player-hand .game-card:focus-visible, .player-hand .game-card.is-selected { transform: translateY(-17px) rotate(0) scale(1.03); }

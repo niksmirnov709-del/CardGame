@@ -183,7 +183,7 @@ function CardFace({ card, compact = false, selected = false, disabled = false, i
   table?: boolean;
 }) {
   const data = SUIT_DATA[card.suit];
-  const ability = card.kind === 'prism' ? 'Combina con todo' : card.kind === 'breaker' ? 'Solo dominante' : card.kind === 'mirror' ? 'Refleja 2' : null;
+  const ability = card.kind === 'prism' ? 'Cualquiera' : card.kind === 'breaker' ? 'Dominante' : card.kind === 'mirror' ? 'Refleja 2' : null;
   const Tag = onClick ? 'button' : 'div';
   return (
     <Tag
