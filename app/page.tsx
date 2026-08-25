@@ -32,6 +32,8 @@ type Game = {
   phase: Phase;
   attacks: Card[];
   defenses: Card[];
+  defenseIndex: number;
+  comboDamage: number;
   attackBonus: number;
   secretAttack: boolean;
   secretUsed: [boolean, boolean];
@@ -119,6 +121,8 @@ function newGame(): Game {
     phase: 'attack',
     attacks: [],
     defenses: [],
+    defenseIndex: 0,
+    comboDamage: 0,
     attackBonus: 0,
     secretAttack: false,
     secretUsed: [false, false],
@@ -152,7 +156,7 @@ function canDefend(card: Card, attack: Card, trump: Suit, suddenDeath: boolean) 
 
 function canChain(card: Card, previous: Card, suddenDeath: boolean) {
   const playable = isAttackCard(card, suddenDeath);
-  return playable && (card.kind === 'prism' || previous.kind === 'prism' || card.suit === previous.suit || attackPower(card, suddenDeath) === attackPower(previous, suddenDeath));
+  return playable && attackPower(card, suddenDeath) === attackPower(previous, suddenDeath);
 }
 
 function playTone(kind: 'card' | 'block' | 'hit' | 'start', enabled: boolean) {
@@ -258,23 +262,29 @@ export default function Home() {
     const card = game.players[game.attacker].hand.find((item) => item.id === selected);
     const playable = card && isAttackCard(card, game.suddenDeath);
     const previous = game.attacks.at(-1);
-    if (!card || !playable || (game.phase === 'chain' && previous && !canChain(card, previous, game.suddenDeath))) return;
+    if (!card || !playable || game.attacks.length >= 3 || (game.phase === 'chain' && previous && !canChain(card, previous, game.suddenDeath))) return;
     const players = game.players.map((player) => ({ ...player, hand: [...player.hand] })) as [Player, Player];
-    const bonus = players[game.attacker].pulse === 3 ? 2 : 0;
+    const bonus = game.attacks.length === 0 && players[game.attacker].pulse === 3 ? 2 : game.attackBonus;
     if (bonus) players[game.attacker].pulse = 0;
     const secretUsed: [boolean, boolean] = [...game.secretUsed];
     if (secretChoice) secretUsed[game.attacker] = true;
     players[game.attacker].hand = players[game.attacker].hand.filter((item) => item.id !== card.id);
-    const defender = 1 - game.attacker;
-    setGame({ ...game, players, viewer: defender, phase: 'defend', attacks: [...game.attacks, card], attackBonus: bonus, secretAttack: secretChoice, secretUsed });
+    setGame({ ...game, players, phase: 'chain', attacks: [...game.attacks, card], attackBonus: bonus, secretAttack: game.secretAttack || secretChoice, secretUsed });
     setSelected(null);
     setSecretChoice(false);
-    setPassTo(defender);
     playTone('card', soundOn);
   };
 
+  const sendCombo = () => {
+    if (!game || game.phase !== 'chain' || game.attacks.length === 0) return;
+    const defender = 1 - game.attacker;
+    setGame({ ...game, viewer: defender, phase: 'defend', defenseIndex: 0, comboDamage: 0, result: '', resultDetail: '' });
+    setSelected(null);
+    setPassTo(defender);
+  };
+
   const resolveDefense = (defense: Card | null) => {
-    const currentAttack = game?.attacks.at(-1);
+    const currentAttack = game?.attacks[game.defenseIndex];
     if (!game || !currentAttack || game.phase !== 'defend') return;
     const defender = 1 - game.attacker;
     const blocked = !!defense && canDefend(defense, currentAttack, game.trump, game.suddenDeath);
@@ -284,6 +294,8 @@ export default function Home() {
     let resultDetail = '';
     let nextAttacker = game.attacker;
     let winner: number | null = null;
+    let comboDamage = game.comboDamage;
+    const isLastAttack = game.defenseIndex === game.attacks.length - 1;
 
     if (defense) players[defender].hand = players[defender].hand.filter((item) => item.id !== defense.id);
 
@@ -291,9 +303,11 @@ export default function Home() {
 
     if (blocked) {
       players[defender].pulse = Math.min(3, players[defender].pulse + 1);
-      nextAttacker = defender;
+      nextAttacker = isLastAttack && comboDamage > 0 ? game.attacker : defender;
       result = defense.kind === 'mirror' ? '¡Espejo!' : defense.kind === 'shield' ? '¡Escudo total!' : defense.kind === 'prism' ? '¡Prisma perfecto!' : '¡Ataque bloqueado!';
-      resultDetail = game.attacks.length < 3 ? 'El atacante puede retirarse o redoblar.' : 'Cadena máxima detenida. El defensor gana el ataque.';
+      resultDetail = isLastAttack
+        ? comboDamage > 0 ? `El combo causó ${comboDamage} de daño total, así que el atacante mantiene el control.` : 'El defensor detuvo todo el ataque y toma el control.'
+        : `Bloqueo ${game.defenseIndex + 1} de ${game.attacks.length}. Todavía queda otra carta.`;
       triggerImpact('block');
       playTone('block', soundOn);
 
@@ -307,7 +321,7 @@ export default function Home() {
           phase: 'result',
           nextAttacker: defender,
           result: '¡Espejo! -2 al atacante',
-          resultDetail: 'La cadena termina inmediatamente y el defensor gana el ataque.',
+          resultDetail: 'El Espejo cancela las cartas restantes y el defensor gana el ataque.',
           winner,
           secretAttack: false,
         });
@@ -316,23 +330,36 @@ export default function Home() {
         return;
       }
 
-      if (game.attacks.length < 3) {
-        setGame({ ...game, players, defenses, viewer: game.attacker, phase: 'chain', nextAttacker, result, resultDetail, secretAttack: false });
+      if (!isLastAttack) {
+        setGame({ ...game, players, defenses, defenseIndex: game.defenseIndex + 1, nextAttacker, result, resultDetail, secretAttack: false });
         setSelected(null);
         setSecretChoice(false);
-        setPassTo(game.attacker);
         return;
       }
+
+      if (comboDamage > 0) result = `Combo parcial: -${comboDamage}`;
     } else {
-      const chainBonus = game.attacks.length - 1;
       const ruptureBonus = currentAttack.kind === 'breaker' ? 2 : 0;
-      const damage = Math.max(2, Math.ceil((attackPower(currentAttack, game.suddenDeath) + game.attackBonus) / 3)) + chainBonus + ruptureBonus;
+      const pulseBonus = game.defenseIndex === 0 ? game.attackBonus : 0;
+      const damage = Math.max(2, Math.ceil((attackPower(currentAttack, game.suddenDeath) + pulseBonus) / 3)) + ruptureBonus;
       players[defender].health = Math.max(0, players[defender].health - damage);
-      result = game.attacks.length > 1 ? `¡Cadena rota! -${damage}` : defense ? `Defensa rota: -${damage}` : `-${damage} de vida`;
-      resultDetail = `${game.secretAttack ? `${currentAttack.title} ${attackPower(currentAttack, game.suddenDeath)} revelado. ` : ''}${players[game.attacker].name} mantiene el ataque.`;
+      comboDamage += damage;
+      result = game.attacks.length > 1 ? `Golpe ${game.defenseIndex + 1}/${game.attacks.length}: -${damage}` : defense ? `Defensa rota: -${damage}` : `-${damage} de vida`;
+      resultDetail = isLastAttack ? `${players[game.attacker].name} mantiene el ataque.` : `Aún debes responder a ${game.attacks.length - game.defenseIndex - 1} carta${game.attacks.length - game.defenseIndex - 1 === 1 ? '' : 's'} más.`;
       if (players[defender].health === 0) winner = game.attacker;
       triggerImpact('hit');
       playTone('hit', soundOn);
+
+      if (!winner && !isLastAttack) {
+        setGame({ ...game, players, defenses, defenseIndex: game.defenseIndex + 1, comboDamage, nextAttacker: game.attacker, result, resultDetail, secretAttack: false });
+        setSelected(null);
+        return;
+      }
+
+      if (game.attacks.length > 1) {
+        result = `¡Combo completo! -${comboDamage}`;
+        resultDetail = `${players[game.attacker].name} conserva el ataque tras resolver ${game.attacks.length} cartas.`;
+      }
     }
 
     setGame({
@@ -340,26 +367,13 @@ export default function Home() {
       players,
       phase: 'result',
       defenses,
+      comboDamage,
       nextAttacker,
       result,
       resultDetail,
       winner,
     });
     setSelected(null);
-  };
-
-  const retreatFromChain = () => {
-    if (!game || game.phase !== 'chain') return;
-    const defender = 1 - game.attacker;
-    setGame({
-      ...game,
-      phase: 'result',
-      nextAttacker: defender,
-      result: 'Retirada táctica',
-      resultDetail: `${game.players[defender].name} detuvo la cadena y gana el ataque.`,
-    });
-    setSelected(null);
-    setSecretChoice(false);
   };
 
   const continueAfterResult = () => {
@@ -396,6 +410,8 @@ export default function Home() {
       phase: 'attack',
       attacks: [],
       defenses: [],
+      defenseIndex: 0,
+      comboDamage: 0,
       attackBonus: 0,
       secretAttack: false,
       discardCount: game.discardCount + game.attacks.length + game.defenses.length,
@@ -436,11 +452,14 @@ export default function Home() {
   const opponent = game.players[1 - game.viewer];
   const selectedCard = self.hand.find((card) => card.id === selected) ?? null;
   const defending = game.phase === 'defend';
-  const currentAttack = game.attacks.at(-1) ?? null;
-  const currentDefense = game.defenses.length === game.attacks.length ? game.defenses.at(-1) ?? null : null;
+  const activeAttackIndex = defending || game.phase === 'result' ? Math.min(game.defenseIndex, game.attacks.length - 1) : game.attacks.length - 1;
+  const currentAttack = game.attacks[activeAttackIndex] ?? null;
+  const currentDefense = game.phase === 'result' ? game.defenses.at(-1) ?? null : null;
+  const attackShadows = game.attacks.filter((_, index) => index !== activeAttackIndex);
+  const defenseShadows = currentDefense ? game.defenses.slice(0, -1) : game.defenses;
   const selectedCanDefend = !!(selectedCard && currentAttack && (game.secretAttack || canDefend(selectedCard, currentAttack, game.trump, game.suddenDeath)));
   const selectedIsAttack = !!selectedCard && isAttackCard(selectedCard, game.suddenDeath);
-  const canAttack = selectedIsAttack && (game.phase !== 'chain' || !currentAttack || canChain(selectedCard, currentAttack, game.suddenDeath));
+  const canAttack = selectedIsAttack && game.attacks.length < 3 && (game.phase !== 'chain' || (!game.secretAttack && !!currentAttack && canChain(selectedCard, currentAttack, game.suddenDeath)));
 
   if (screen === 'winner') {
     const winner = game.winner ?? 0;
@@ -489,13 +508,13 @@ export default function Home() {
 
         <div className="combat-slots">
           <div className="combat-slot attack-slot">
-            {game.attacks.slice(0, -1).map((card, index) => <i className="chain-shadow attack-shadow" style={{ '--stack-index': index } as CSSProperties} key={card.id} />)}
+            {attackShadows.map((card, index) => <i className="chain-shadow attack-shadow" style={{ '--stack-index': index } as CSSProperties} key={card.id} />)}
             {currentAttack ? game.secretAttack && game.phase === 'defend' ? <div className="secret-table-card"><CardBack /><strong>?</strong></div> : <CardFace card={currentAttack} table /> : <span>ATAQUE</span>}
             {game.attackBonus > 0 && <i className="bonus-tag">+{game.attackBonus}</i>}
           </div>
           <div className={`clash-mark ${currentAttack ? 'active' : ''}`}>{game.attacks.length > 1 ? `×${game.attacks.length}` : 'VS'}</div>
           <div className="combat-slot defense-slot">
-            {game.defenses.slice(0, currentDefense ? -1 : undefined).map((card, index) => <i className="chain-shadow defense-shadow" style={{ '--stack-index': index } as CSSProperties} key={card.id} />)}
+            {defenseShadows.map((card, index) => <i className="chain-shadow defense-shadow" style={{ '--stack-index': index } as CSSProperties} key={card.id} />)}
             {currentDefense ? <CardFace card={currentDefense} table /> : <span>DEFENSA</span>}
           </div>
         </div>
@@ -507,10 +526,10 @@ export default function Home() {
       </section>
 
       <section className="turn-panel" aria-live="polite">
-        {game.phase === 'attack' && <><b>Tu ataque</b><span>Elige una carta. Las cartas altas golpean más, pero cuesta más defenderlas.</span></>}
-        {game.phase === 'chain' && <><b>Cadena ×{game.attacks.length}</b><span>Retírate o redobla con el mismo símbolo o el mismo valor. Máximo tres ataques.</span></>}
+        {game.phase === 'attack' && <><b>Prepara tu ataque</b><span>Juega una carta. Después podrás sumar hasta dos cartas con el mismo número.</span></>}
+        {game.phase === 'chain' && <><b>Combo ×{game.attacks.length}</b><span>{game.secretAttack ? 'Las jugadas ocultas no admiten combo.' : `Añade otro ${currentAttack ? attackPower(currentAttack, game.suddenDeath) : ''} o envía el ataque al rival.`}</span></>}
         {game.phase === 'defend' && game.secretAttack && <><b>Ataque oculto</b><span>Arriesga cualquier carta para intentar bloquearlo o usa un escudo seguro.</span></>}
-        {game.phase === 'defend' && !game.secretAttack && <><b>Tu defensa</b><span>Supera el valor con el mismo símbolo, usa {SUIT_DATA[game.trump].label} o juega un escudo.</span></>}
+        {game.phase === 'defend' && !game.secretAttack && <><b>Defensa {game.defenseIndex + 1}/{game.attacks.length}</b><span>Debes responder a cada carta: supera el valor, usa {SUIT_DATA[game.trump].label} o juega un escudo.</span></>}
         {game.phase === 'result' && <><b>{game.result}</b><span>{game.resultDetail}</span></>}
       </section>
 
@@ -521,19 +540,19 @@ export default function Home() {
             const invalidDefense = defending && !!currentAttack && !game.secretAttack && !canDefend(card, currentAttack, game.trump, game.suddenDeath);
             const attackPhase = game.phase === 'attack' || game.phase === 'chain';
             const playableAttack = isAttackCard(card, game.suddenDeath);
-            const invalidAttack = attackPhase && (!playableAttack || (game.phase === 'chain' && !!currentAttack && !canChain(card, currentAttack, game.suddenDeath)));
+            const invalidAttack = attackPhase && (!playableAttack || game.attacks.length >= 3 || (game.phase === 'chain' && (!!game.secretAttack || !currentAttack || !canChain(card, currentAttack, game.suddenDeath))));
             return <CardFace card={card} key={card.id} index={index} selected={selected === card.id} disabled={game.phase === 'result'} onClick={() => setSelected(selected === card.id ? null : card.id)} compact={invalidDefense || invalidAttack} />;
           })}
         </div>
         <div className="action-dock">
           {(game.phase === 'attack' || game.phase === 'chain') && <>
-            {game.phase === 'chain' && <button className="take-hit-button retreat-button" onClick={retreatFromChain}>Retirarse</button>}
-            <button className={`secret-button ${secretChoice ? 'active' : ''}`} disabled={game.secretUsed[game.attacker]} onClick={() => setSecretChoice(!secretChoice)} title="Oculta una carta una vez por partida">{game.secretUsed[game.attacker] ? 'Oculta usada' : secretChoice ? 'Oculta lista' : 'Jugada oculta'}</button>
-            <button className="play-button" disabled={!canAttack} onClick={playAttack}>{secretChoice ? 'Jugar boca abajo' : game.phase === 'chain' ? `Redoblar ×${game.attacks.length + 1}` : game.players[game.attacker].pulse === 3 ? 'Atacar con +2' : game.suddenDeath && selectedCard && !isAttackCard(selectedCard, false) ? 'Embestida 2' : 'Jugar ataque'}</button>
+            {game.phase === 'chain' && <button className="take-hit-button retreat-button" onClick={sendCombo}>Enviar ×{game.attacks.length}</button>}
+            {game.phase === 'attack' && <button className={`secret-button ${secretChoice ? 'active' : ''}`} disabled={game.secretUsed[game.attacker]} onClick={() => setSecretChoice(!secretChoice)} title="Oculta una carta una vez por partida">{game.secretUsed[game.attacker] ? 'Oculta usada' : secretChoice ? 'Oculta lista' : 'Jugada oculta'}</button>}
+            <button className="play-button" disabled={!canAttack} onClick={playAttack}>{secretChoice ? 'Preparar oculta' : game.phase === 'chain' ? currentAttack ? `Añadir otro ${attackPower(currentAttack, game.suddenDeath)}` : 'Añadir carta' : game.players[game.attacker].pulse === 3 ? 'Preparar con +2' : game.suddenDeath && selectedCard && !isAttackCard(selectedCard, false) ? 'Preparar embestida' : 'Preparar ataque'}</button>
           </>}
           {game.phase === 'defend' && <>
-            <button className="take-hit-button" onClick={() => resolveDefense(null)}>Recibir golpe</button>
-            <button className="play-button defend-button" disabled={!selectedCanDefend} onClick={() => resolveDefense(selectedCard)}>Bloquear</button>
+            <button className="take-hit-button" onClick={() => resolveDefense(null)}>Recibir {game.defenseIndex + 1}/{game.attacks.length}</button>
+            <button className="play-button defend-button" disabled={!selectedCanDefend} onClick={() => resolveDefense(selectedCard)}>Bloquear {game.defenseIndex + 1}/{game.attacks.length}</button>
           </>}
           {game.phase === 'result' && <button className="play-button" onClick={continueAfterResult}>{game.winner !== null ? 'Ver ganador' : game.nextAttacker === game.viewer ? 'Atacar ahora' : 'Pasar turno'}</button>}
         </div>
@@ -561,11 +580,11 @@ function RulesModal({ onClose }: { onClose: () => void }) {
         <p className="eyebrow">Reglas rápidas</p>
         <h2 id="rules-title">Ataca, pasa y responde</h2>
         <ol>
-          <li><b>Ataca.</b><span>Juega una carta y pasa el dispositivo.</span></li>
-          <li><b>Defiende.</b><span>Usa el mismo símbolo con mayor valor, el símbolo dominante o un escudo.</span></li>
+          <li><b>Prepara.</b><span>Juega una carta y, si tienes más del mismo número, añade hasta dos al combo.</span></li>
+          <li><b>Defiende.</b><span>El rival debe responder a cada carta del combo con un símbolo mayor, el dominante o un escudo.</span></li>
           <li><b>Cambia el control.</b><span>Si bloqueas, tú atacas. Si recibes el golpe, el rival repite.</span></li>
           <li><b>Llena Impulso.</b><span>Tres defensas exitosas dan +2 al siguiente ataque.</span></li>
-          <li><b>Encadena.</b><span>Tras un bloqueo, retírate o añade una carta del mismo símbolo o valor. Puedes llegar a tres ataques.</span></li>
+          <li><b>Combina.</b><span>Dos 9 exigen dos defensas. Si falla una, recibe su daño, pero aún debe responder a las demás.</span></li>
           <li><b>Engaña.</b><span>Cada jugador puede lanzar una única carta boca abajo durante la partida.</span></li>
           <li><b>Usa especiales.</b><span>Prisma combina con cualquier figura, Ruptura atraviesa defensas normales y Espejo devuelve 2 de daño.</span></li>
           <li><b>Sobrevive.</b><span>Al agotarse el mazo empieza la muerte súbita y los escudos atacan con fuerza 2.</span></li>
