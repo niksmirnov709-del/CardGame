@@ -151,13 +151,25 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 .card-copy { position: absolute; inset: auto 7px 9px; display: flex; flex-direction: column; align-items: center; z-index: 3; text-transform: uppercase; }
 .card-copy strong { font-size: 10px; line-height: 1.1; }
 .card-copy small { margin-top: 2px; color: #ffffffb9; font-size: 8px; font-weight: 800; }
-.card-fuego { --card-color: linear-gradient(145deg, #ec654e, #882b3b); }
-.card-marea { --card-color: linear-gradient(145deg, #50afce, #25528c); }
-.card-bosque { --card-color: linear-gradient(145deg, #62aa62, #275e4b); }
-.card-rayo { --card-color: linear-gradient(145deg, #bb6bd0, #5c3a88); }
+.card-circulo { --card-color: linear-gradient(145deg, #e55252, #8c253d); }
+.card-triangulo { --card-color: linear-gradient(145deg, #e2ad3d, #87552b); }
+.card-cuadrado { --card-color: linear-gradient(145deg, #3ca5cb, #28558d); }
+.card-rombo { --card-color: linear-gradient(145deg, #61ae6c, #28604f); }
+.card-circulo .card-art i { border-radius: 50%; }
+.card-triangulo .card-art i { border-radius: 2px; clip-path: polygon(50% 0, 100% 100%, 0 100%); padding-top: 18px; }
+.card-cuadrado .card-art i { border-radius: 1px; }
+.card-rombo .card-art i { border-radius: 2px; transform: rotate(45deg); }
 .card-guardia { --card-color: linear-gradient(145deg, #d2a854, #75512b); }
 .card-guardia .card-art i { border-radius: 8px; transform: rotate(45deg); }
 .card-guardia .card-art i::first-letter { transform: rotate(-45deg); }
+.card-prisma { --card-color: conic-gradient(from 35deg, #d6576f, #d6b34f, #4caac9, #7f6ed0, #d6576f); }
+.card-prisma::after { height: 3px; background: #fff9; box-shadow: 0 0 14px white; }
+.card-prisma .card-art i { background: #ffffff21; border-color: white; box-shadow: 0 0 0 5px #ffffff24, 0 0 24px #fff8; animation: prism-glow 1.4s ease-in-out infinite alternate; }
+.card-ruptura { --card-color: repeating-linear-gradient(135deg, #d94645 0 16px, #5b1e2b 16px 32px); }
+.card-ruptura .card-art i { border-color: #ffd077; background: #1b1117; color: #ffcf65; font-size: 43px; box-shadow: 0 0 0 5px #ffb8461f, 0 0 27px #ff593b99; }
+.card-espejo { --card-color: linear-gradient(135deg, #e3e7ec, #56849d 42%, #1d334b 58%, #9ed5df); color: #fff; }
+.card-espejo .card-art i { border-color: white; background: linear-gradient(135deg, #ffffffb8, #5aa0ba 48%, #fff 52%, #2a506b); box-shadow: 0 0 0 5px #ffffff26, 0 0 25px #b9f3ff99; }
+@keyframes prism-glow { to { filter: brightness(1.35); transform: rotate(8deg) scale(1.06); } }
 
 .card-back {
   position: relative;
