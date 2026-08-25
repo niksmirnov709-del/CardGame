@@ -3,7 +3,7 @@
 import { useState, type CSSProperties } from 'react';
 
 type Suit = 'circulo' | 'triangulo' | 'cuadrado' | 'rombo';
-type Phase = 'attack' | 'defend' | 'chain' | 'result';
+type Phase = 'attack' | 'defend' | 'chain' | 'penalty' | 'result';
 type CardKind = 'number' | 'king' | 'pawn' | 'draw';
 
 type Card = {
@@ -38,6 +38,7 @@ type Game = {
   nextAttacker: number;
   result: string;
   resultDetail: string;
+  drawPenalty: number;
   winner: number | null;
 };
 
@@ -79,7 +80,7 @@ function createDeck(): Card[] {
   const specials: Card[] = [
     ...Array.from({ length: 2 }, (_, index) => ({ id: `rey-${index}`, kind: 'king' as const, suit: 'rey' as const, value: 10, title: 'Rey' })),
     ...Array.from({ length: 2 }, (_, index) => ({ id: `peon-${index}`, kind: 'pawn' as const, suit: 'peon' as const, value: 1, title: 'Peón' })),
-    ...Array.from({ length: 2 }, (_, index) => ({ id: `mas4-${index}`, kind: 'draw' as const, suit: 'mas4' as const, value: 4, title: '+4' })),
+    ...Array.from({ length: 4 }, (_, index) => ({ id: `mas4-${index}`, kind: 'draw' as const, suit: 'mas4' as const, value: 4, title: '+4' })),
   ];
   return shuffle([...numbers, ...specials]);
 }
@@ -119,6 +120,7 @@ function newGame(): Game {
     nextAttacker: 0,
     result: '',
     resultDetail: '',
+    drawPenalty: 0,
     winner: null,
   };
 }
@@ -128,7 +130,7 @@ function isAttackCard(card: Card) {
 }
 
 function canDefend(card: Card, attack: Card, trump: Suit) {
-  if (card.kind === 'king' || card.kind === 'pawn') return true;
+  if (card.kind === 'king' || card.kind === 'pawn' || card.kind === 'draw') return true;
   if (card.kind !== 'number') return false;
   if (attack.kind !== 'number') return card.suit === trump;
   if (attack.suit === trump) return card.suit === trump && card.value > attack.value;
@@ -253,16 +255,21 @@ export default function Home() {
     const defender = 1 - game.attacker;
 
     if (!isThrowIn && card.kind === 'draw') {
-      const deck = [...game.deck];
-      for (let count = 0; count < 4 && deck.length > 0; count += 1) {
-        const drawn = deck.shift();
-        if (drawn) players[defender].hand.push(drawn);
-      }
-      setGame({ ...game, deck, players, attacks, phase: 'result', nextAttacker: game.attacker, result: '¡+4! Roba 4', resultDetail: `${players[defender].name} añade cuatro cartas a su mano.`, pickedUp: false });
+      setGame({
+        ...game,
+        players,
+        attacks,
+        viewer: defender,
+        phase: 'penalty',
+        drawPenalty: 4,
+        result: '¡+4 pendiente!',
+        resultDetail: `${players[defender].name} debe robar 4 o responder con otro +4.`,
+        pickedUp: false,
+      });
       setSelected(null);
       setSecretChoice(false);
-      triggerImpact('hit');
-      playTone('hit', soundOn);
+      setPassTo(defender);
+      playTone('card', soundOn);
       return;
     }
 
@@ -362,6 +369,26 @@ export default function Home() {
       return;
     }
 
+    if (defense.kind === 'draw') {
+      setGame({
+        ...game,
+        players,
+        defenses,
+        viewer: game.attacker,
+        phase: 'penalty',
+        drawPenalty: 4,
+        secretAttack: false,
+        pickedUp: false,
+        result: '¡Defensa +4!',
+        resultDetail: `${players[game.attacker].name} debe robar 4 o devolver otro +4.`,
+      });
+      setSelected(null);
+      setPassTo(game.attacker);
+      triggerImpact('block');
+      playTone('block', soundOn);
+      return;
+    }
+
     triggerImpact('block');
     playTone('block', soundOn);
     if (game.attacks.length >= MAX_ATTACKS) {
@@ -383,6 +410,58 @@ export default function Home() {
     });
     setSelected(null);
     setPassTo(game.attacker);
+  };
+
+  const stackDrawPenalty = () => {
+    if (!game || game.phase !== 'penalty' || !selected) return;
+    const target = game.viewer;
+    const card = game.players[target].hand.find((item) => item.id === selected);
+    if (!card || card.kind !== 'draw') return;
+    const players = game.players.map((player) => ({ ...player, hand: [...player.hand] })) as [Player, Player];
+    players[target].hand = players[target].hand.filter((item) => item.id !== card.id);
+    const nextTarget = 1 - target;
+    const drawPenalty = game.drawPenalty + 4;
+    setGame({
+      ...game,
+      players,
+      defenses: [...game.defenses, card],
+      viewer: nextTarget,
+      drawPenalty,
+      result: `¡+${drawPenalty} acumulado!`,
+      resultDetail: `${players[nextTarget].name} debe robar ${drawPenalty} o apilar otro +4.`,
+    });
+    setSelected(null);
+    setPassTo(nextTarget);
+    triggerImpact('block');
+    playTone('block', soundOn);
+  };
+
+  const takeDrawPenalty = () => {
+    if (!game || game.phase !== 'penalty') return;
+    const target = game.viewer;
+    const deck = [...game.deck];
+    const players = game.players.map((player) => ({ ...player, hand: [...player.hand] })) as [Player, Player];
+    let drawnCount = 0;
+    while (drawnCount < game.drawPenalty && deck.length > 0) {
+      const card = deck.shift();
+      if (card) {
+        players[target].hand.push(card);
+        drawnCount += 1;
+      }
+    }
+    setGame({
+      ...game,
+      deck,
+      players,
+      phase: 'result',
+      nextAttacker: 1 - target,
+      pickedUp: false,
+      result: `${players[target].name} roba ${drawnCount}`,
+      resultDetail: drawnCount === game.drawPenalty ? `Aceptó la penalización de +${game.drawPenalty}.` : `El mazo solo tenía ${drawnCount} cartas disponibles.`,
+    });
+    setSelected(null);
+    triggerImpact('hit');
+    playTone('hit', soundOn);
   };
 
   const continueAfterResult = () => {
@@ -422,6 +501,7 @@ export default function Home() {
       discardCount: game.discardCount + (game.pickedUp ? 0 : game.attacks.length + game.defenses.length),
       result: '',
       resultDetail: '',
+      drawPenalty: 0,
       winner,
     };
     setGame(next);
@@ -460,13 +540,14 @@ export default function Home() {
   const defending = game.phase === 'defend';
   const activeAttackIndex = defending || game.phase === 'result' ? Math.min(game.defenseIndex, game.attacks.length - 1) : game.attacks.length - 1;
   const currentAttack = game.attacks[activeAttackIndex] ?? null;
-  const latestDefenseIsCurrent = game.phase === 'chain' || game.phase === 'result' || (game.phase === 'defend' && game.defenses.at(-1)?.kind === 'pawn');
+  const latestDefenseIsCurrent = game.phase === 'chain' || game.phase === 'penalty' || game.phase === 'result' || (game.phase === 'defend' && game.defenses.at(-1)?.kind === 'pawn');
   const currentDefense = latestDefenseIsCurrent ? game.defenses.at(-1) ?? null : null;
   const attackShadows = game.attacks.filter((_, index) => index !== activeAttackIndex);
   const defenseShadows = currentDefense ? game.defenses.slice(0, -1) : game.defenses;
   const selectedCanDefend = !!(selectedCard && currentAttack && (game.secretAttack || canDefend(selectedCard, currentAttack, game.trump)));
   const selectedIsAttack = !!selectedCard && isAttackCard(selectedCard);
   const canAttack = selectedIsAttack && (!secretChoice || selectedCard?.kind === 'number') && (game.phase !== 'chain' || (game.attacks.length < MAX_ATTACKS && !!selectedCard && canThrowIn(selectedCard, game.attacks, game.defenses)));
+  const canStackPenalty = game.phase === 'penalty' && selectedCard?.kind === 'draw';
 
   if (screen === 'winner') {
     const winner = game.winner ?? 0;
@@ -534,8 +615,9 @@ export default function Home() {
       <section className="turn-panel" aria-live="polite">
         {game.phase === 'attack' && <><b>Tu ataque</b><span>Juega una carta y pasa el dispositivo para que el rival responda.</span></>}
         {game.phase === 'chain' && <><b>¿Añades otra?</b><span>Lanza cualquier número que ya aparezca en un ataque o una defensa, sin importar la figura.</span></>}
-        {game.phase === 'defend' && game.secretAttack && <><b>Ataque oculto</b><span>Prueba una defensa o recoge todas las cartas de la mesa.</span></>}
-        {game.phase === 'defend' && !game.secretAttack && <><b>Defensa {game.defenseIndex + 1}/{game.attacks.length}</b><span>Supera el número, usa {SUIT_DATA[game.trump].label}, cancela con Rey o devuelve con Peón.</span></>}
+        {game.phase === 'defend' && game.secretAttack && <><b>Ataque oculto</b><span>Prueba una defensa, responde con +4 o recoge todas las cartas de la mesa.</span></>}
+        {game.phase === 'defend' && !game.secretAttack && <><b>Defensa {game.defenseIndex + 1}/{game.attacks.length}</b><span>Supera el número, usa {SUIT_DATA[game.trump].label}, Rey, Peón o responde con +4.</span></>}
+        {game.phase === 'penalty' && <><b>+{game.drawPenalty} pendiente</b><span>Roba la penalización o selecciona otro +4 para devolverla aumentada.</span></>}
         {game.phase === 'result' && <><b>{game.result}</b><span>{game.resultDetail}</span></>}
       </section>
 
@@ -551,7 +633,8 @@ export default function Home() {
             const attackPhase = game.phase === 'attack' || game.phase === 'chain';
             const playableAttack = isAttackCard(card);
             const invalidAttack = attackPhase && (!playableAttack || (game.phase === 'chain' && (game.attacks.length >= MAX_ATTACKS || !canThrowIn(card, game.attacks, game.defenses))));
-            return <CardFace card={card} key={card.id} index={index} fanOffset={index - (self.hand.length - 1) / 2} selected={selected === card.id} disabled={game.phase === 'result'} onClick={() => setSelected(selected === card.id ? null : card.id)} compact={invalidDefense || invalidAttack} />;
+            const invalidPenaltyResponse = game.phase === 'penalty' && card.kind !== 'draw';
+            return <CardFace card={card} key={card.id} index={index} fanOffset={index - (self.hand.length - 1) / 2} selected={selected === card.id} disabled={game.phase === 'result'} onClick={() => setSelected(selected === card.id ? null : card.id)} compact={invalidDefense || invalidAttack || invalidPenaltyResponse} />;
           })}
         </div>
         <div className="action-dock">
@@ -563,6 +646,10 @@ export default function Home() {
           {game.phase === 'defend' && <>
             <button className="take-hit-button" onClick={() => resolveDefense(null)}>Recoger mesa</button>
             <button className="play-button defend-button" disabled={!selectedCanDefend} onClick={() => resolveDefense(selectedCard)}>Bloquear {game.defenseIndex + 1}/{game.attacks.length}</button>
+          </>}
+          {game.phase === 'penalty' && <>
+            <button className="take-hit-button" onClick={takeDrawPenalty}>Robar +{game.drawPenalty}</button>
+            <button className="play-button defend-button" disabled={!canStackPenalty} onClick={stackDrawPenalty}>Apilar +4</button>
           </>}
           {game.phase === 'result' && <button className="play-button" onClick={continueAfterResult}>{game.winner !== null ? 'Ver ganador' : game.nextAttacker === game.viewer ? 'Atacar ahora' : 'Pasar turno'}</button>}
         </div>
@@ -596,7 +683,7 @@ function RulesModal({ onClose }: { onClose: () => void }) {
           <li><b>Encadena como en Durak.</b><span>Después de una defensa, puedes añadir cualquier número que ya se vea en la mesa. Si un 2 fue cubierto con un 5, puedes lanzar otro 2 u otro 5 de cualquier figura. Máximo seis ataques.</span></li>
           <li><b>Juega Rey.</b><span>Cancela de inmediato todo el ataque y te entrega el siguiente turno.</span></li>
           <li><b>Juega Peón.</b><span>Devuelve el ataque: quien lo lanzó pasa a ser quien debe defenderse.</span></li>
-          <li><b>Juega +4.</b><span>El rival roba cuatro cartas del mazo y tú conservas el turno.</span></li>
+          <li><b>Responde con +4.</b><span>Puede cubrir cualquier ataque. El rival roba cuatro cartas o apila otro +4 para devolver una penalización de +8, +12 y así sucesivamente.</span></li>
           <li><b>Recoge.</b><span>Si no puedes defenderte, recoge todas las cartas que haya sobre la mesa. No existen vidas.</span></li>
           <li><b>Vacía tu mano.</b><span>Cuando el mazo se agote, gana el primer jugador que se quede sin cartas.</span></li>
         </ol>
