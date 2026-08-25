@@ -160,17 +160,13 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 .card-triangulo .card-art i { border-radius: 2px; clip-path: polygon(50% 0, 100% 100%, 0 100%); padding-top: 18px; }
 .card-cuadrado .card-art i { border-radius: 1px; }
 .card-rombo .card-art i { border-radius: 2px; transform: rotate(45deg); }
-.card-guardia { --card-color: linear-gradient(145deg, #d2a854, #75512b); }
-.card-guardia .card-art i { border-radius: 8px; transform: rotate(45deg); }
-.card-guardia .card-art i::first-letter { transform: rotate(-45deg); }
-.card-prisma { --card-color: conic-gradient(from 35deg, #d6576f, #d6b34f, #4caac9, #7f6ed0, #d6576f); }
-.card-prisma::after { height: 3px; background: #fff9; box-shadow: 0 0 14px white; }
-.card-prisma .card-art i { background: #ffffff21; border-color: white; box-shadow: 0 0 0 5px #ffffff24, 0 0 24px #fff8; animation: prism-glow 1.4s ease-in-out infinite alternate; }
-.card-ruptura { --card-color: repeating-linear-gradient(135deg, #d94645 0 16px, #5b1e2b 16px 32px); }
-.card-ruptura .card-art i { border-color: #ffd077; background: #1b1117; color: #ffcf65; font-size: 43px; box-shadow: 0 0 0 5px #ffb8461f, 0 0 27px #ff593b99; }
-.card-espejo { --card-color: linear-gradient(135deg, #e3e7ec, #56849d 42%, #1d334b 58%, #9ed5df); color: #fff; }
-.card-espejo .card-art i { border-color: white; background: linear-gradient(135deg, #ffffffb8, #5aa0ba 48%, #fff 52%, #2a506b); box-shadow: 0 0 0 5px #ffffff26, 0 0 25px #b9f3ff99; }
-@keyframes prism-glow { to { filter: brightness(1.35); transform: rotate(8deg) scale(1.06); } }
+.card-rey { --card-color: linear-gradient(145deg, #d2a744, #7b273c 58%, #301b38); }
+.card-rey::after { height: 3px; background: #ffe39c; box-shadow: 0 0 14px #ffd876; }
+.card-rey .card-art i { border-color: #ffe4a0; background: #481f32; color: #ffe29a; box-shadow: 0 0 0 5px #ffd76d20, 0 0 24px #ffca5b70; }
+.card-peon { --card-color: linear-gradient(145deg, #49a48d, #25536a 55%, #25283e); }
+.card-peon .card-art i { border-color: #c8fff0; background: #102f3b; color: #c6ffef; box-shadow: 0 0 0 5px #8effda1c, 0 0 23px #55d9bd66; }
+.card-mas4 { --card-color: repeating-linear-gradient(135deg, #f3c650 0 16px, #252634 16px 32px); }
+.card-mas4 .card-art i { border-color: #fff0aa; background: #171923; color: #ffe36f; font-size: 25px; box-shadow: 0 0 0 5px #ffe05c20, 0 0 25px #ffca4366; }
 
 .card-back {
   position: relative;
@@ -215,12 +211,9 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 .player-stats { width: 120px; margin-left: 9px; }
 .name-row { display: flex; justify-content: space-between; align-items: center; font-size: 11px; }
 .name-row span { color: #ddd4cd; font-weight: 800; }
-.health-bar { height: 9px; margin: 4px 0; overflow: hidden; border: 1px solid #ffffff2c; background: #230e16; }
-.health-bar span { display: block; height: 100%; background: linear-gradient(90deg, #d93647, #ff785f); transition: width .4s ease; box-shadow: 0 0 8px #ff514e; }
-.pulse-row { display: flex; align-items: center; gap: 4px; }
-.pulse-row small { margin-right: 3px; color: #aca4a0; font-size: 7px; font-weight: 1000; }
-.pulse-row i { width: 8px; height: 8px; border: 1px solid #f6c65b88; transform: rotate(45deg); }
-.pulse-row i.filled { background: var(--gold); box-shadow: 0 0 6px var(--gold); }
+.card-count-row { display: flex; align-items: center; gap: 3px; min-height: 13px; margin-top: 5px; }
+.card-count-row i { width: 8px; height: 11px; border: 1px solid #f6c65ba8; background: #1b1e29; transform: skewY(-8deg); }
+.card-count-row b { margin-left: 3px; color: var(--gold); font-size: 9px; }
 
 .hidden-hand { position: relative; width: min(430px, 58vw); height: 116px; perspective: 900px; }
 .hidden-hand .small-back { position: absolute; left: calc(50% - 37px); top: -23px; width: 72px; transform-origin: 50% 170%; transform: rotate(calc((var(--card-index) - 2.5) * 7deg)) translateX(calc((var(--card-index) - 2.5) * 27px)); animation: deal-opponent .38s calc(var(--card-index) * 55ms) both ease-out; }
@@ -330,7 +323,6 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
   .player-badge.opponent { bottom: 0; }
   .avatar { width: 43px; border-width: 2px; }
   .player-stats { width: 91px; margin-left: 6px; }
-  .pulse-row small { display: none; }
   .hidden-hand { width: 260px; transform: scale(.74); }
   .hidden-hand .small-back { top: -30px; }
   .arena { grid-template-columns: 72px 1fr 64px; }
