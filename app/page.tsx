@@ -219,6 +219,7 @@ export default function Home() {
   const [screen, setScreen] = useState<'menu' | 'game' | 'winner'>('menu');
   const [game, setGame] = useState<Game | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [attackCombo, setAttackCombo] = useState<string[]>([]);
   const [passTo, setPassTo] = useState<number | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
@@ -230,6 +231,7 @@ export default function Home() {
     setGame(created);
     setScreen('game');
     setSelected(null);
+    setAttackCombo([]);
     setSecretChoice(false);
     setPassTo(0);
     playTone('start', soundOn);
@@ -242,19 +244,26 @@ export default function Home() {
   };
 
   const playAttack = () => {
-    if (!game || !['attack', 'chain'].includes(game.phase) || !selected) return;
-    const card = game.players[game.attacker].hand.find((item) => item.id === selected);
-    const playable = card && isAttackCard(card);
+    if (!game || !['attack', 'chain'].includes(game.phase)) return;
     const isThrowIn = game.phase === 'chain';
-    if (!card || !playable || (secretChoice && card.kind !== 'number') || (isThrowIn && (game.attacks.length >= MAX_ATTACKS || !canThrowIn(card, game.attacks, game.defenses)))) return;
+    const chosenIds = isThrowIn ? (selected ? [selected] : []) : attackCombo;
+    const cards = chosenIds
+      .map((id) => game.players[game.attacker].hand.find((item) => item.id === id))
+      .filter((card): card is Card => !!card);
+    const firstCard = cards[0];
+    const validOpeningCombo = cards.length > 0 && cards.length <= 3 && cards.every((card) => isAttackCard(card)) && (
+      cards.length === 1 || (firstCard.kind === 'number' && cards.every((card) => card.kind === 'number' && card.value === firstCard.value))
+    );
+    if (!firstCard || (isThrowIn && (cards.length !== 1 || game.attacks.length >= MAX_ATTACKS || !canThrowIn(firstCard, game.attacks, game.defenses))) || (!isThrowIn && !validOpeningCombo) || (secretChoice && (cards.length !== 1 || firstCard.kind !== 'number'))) return;
     const players = game.players.map((player) => ({ ...player, hand: [...player.hand] })) as [Player, Player];
     const secretUsed: [boolean, boolean] = [...game.secretUsed];
     if (secretChoice) secretUsed[game.attacker] = true;
-    players[game.attacker].hand = players[game.attacker].hand.filter((item) => item.id !== card.id);
-    const attacks = [...game.attacks, card];
+    const chosenSet = new Set(chosenIds);
+    players[game.attacker].hand = players[game.attacker].hand.filter((item) => !chosenSet.has(item.id));
+    const attacks = [...game.attacks, ...cards];
     const defender = 1 - game.attacker;
 
-    if (!isThrowIn && card.kind === 'draw') {
+    if (!isThrowIn && firstCard.kind === 'draw') {
       setGame({
         ...game,
         players,
@@ -267,6 +276,7 @@ export default function Home() {
         pickedUp: false,
       });
       setSelected(null);
+      setAttackCombo([]);
       setSecretChoice(false);
       setPassTo(defender);
       playTone('card', soundOn);
@@ -279,7 +289,7 @@ export default function Home() {
       attacks,
       viewer: defender,
       phase: 'defend',
-      defenseIndex: attacks.length - 1,
+      defenseIndex: isThrowIn ? attacks.length - 1 : 0,
       secretAttack: isThrowIn ? false : secretChoice,
       secretUsed,
       result: '',
@@ -287,9 +297,26 @@ export default function Home() {
       pickedUp: false,
     });
     setSelected(null);
+    setAttackCombo([]);
     setSecretChoice(false);
     setPassTo(defender);
     playTone('card', soundOn);
+  };
+
+  const selectHandCard = (card: Card) => {
+    if (!game) return;
+    if (game.phase !== 'attack') {
+      setSelected(selected === card.id ? null : card.id);
+      return;
+    }
+    setSelected(null);
+    setAttackCombo((current) => {
+      if (current.includes(card.id)) return current.filter((id) => id !== card.id);
+      const first = game.players[game.attacker].hand.find((item) => item.id === current[0]);
+      if (!first) return [card.id];
+      if (!secretChoice && current.length < 3 && first.kind === 'number' && card.kind === 'number' && first.value === card.value) return [...current, card.id];
+      return [card.id];
+    });
   };
 
   const finishAttack = () => {
@@ -391,6 +418,19 @@ export default function Home() {
 
     triggerImpact('block');
     playTone('block', soundOn);
+    if (game.defenseIndex < game.attacks.length - 1) {
+      setGame({
+        ...game,
+        players,
+        defenses,
+        defenseIndex: game.defenseIndex + 1,
+        secretAttack: false,
+        result: `Defensa ${game.defenseIndex + 1}/${game.attacks.length}`,
+        resultDetail: 'Todavía queda otra carta del combo por defender.',
+      });
+      setSelected(null);
+      return;
+    }
     if (game.attacks.length >= MAX_ATTACKS) {
       setGame({ ...game, players, defenses, phase: 'result', nextAttacker: defender, pickedUp: false, secretAttack: false, result: '¡Mesa defendida!', resultDetail: `Se alcanzó el límite de ${MAX_ATTACKS} ataques. ${players[defender].name} toma el turno.` });
       setSelected(null);
@@ -506,6 +546,7 @@ export default function Home() {
     };
     setGame(next);
     setSelected(null);
+    setAttackCombo([]);
     setSecretChoice(false);
     if (winner !== null) setScreen('winner');
     else if (game.nextAttacker !== game.viewer) setPassTo(game.nextAttacker);
@@ -545,8 +586,16 @@ export default function Home() {
   const attackShadows = game.attacks.filter((_, index) => index !== activeAttackIndex);
   const defenseShadows = currentDefense ? game.defenses.slice(0, -1) : game.defenses;
   const selectedCanDefend = !!(selectedCard && currentAttack && (game.secretAttack || canDefend(selectedCard, currentAttack, game.trump)));
-  const selectedIsAttack = !!selectedCard && isAttackCard(selectedCard);
-  const canAttack = selectedIsAttack && (!secretChoice || selectedCard?.kind === 'number') && (game.phase !== 'chain' || (game.attacks.length < MAX_ATTACKS && !!selectedCard && canThrowIn(selectedCard, game.attacks, game.defenses)));
+  const selectedAttackCards = attackCombo
+    .map((id) => self.hand.find((card) => card.id === id))
+    .filter((card): card is Card => !!card);
+  const firstAttackChoice = selectedAttackCards[0] ?? null;
+  const validOpeningCombo = selectedAttackCards.length > 0 && selectedAttackCards.length <= 3 && (
+    selectedAttackCards.length === 1 || (firstAttackChoice?.kind === 'number' && selectedAttackCards.every((card) => card.kind === 'number' && card.value === firstAttackChoice.value))
+  );
+  const canAttack = game.phase === 'attack'
+    ? validOpeningCombo && (!secretChoice || (selectedAttackCards.length === 1 && firstAttackChoice?.kind === 'number'))
+    : !!selectedCard && isAttackCard(selectedCard) && game.attacks.length < MAX_ATTACKS && canThrowIn(selectedCard, game.attacks, game.defenses);
   const canStackPenalty = game.phase === 'penalty' && selectedCard?.kind === 'draw';
 
   if (screen === 'winner') {
@@ -613,7 +662,7 @@ export default function Home() {
       </section>
 
       <section className="turn-panel" aria-live="polite">
-        {game.phase === 'attack' && <><b>Tu ataque</b><span>Juega una carta y pasa el dispositivo para que el rival responda.</span></>}
+        {game.phase === 'attack' && <><b>Tu ataque</b><span>Selecciona una carta o hasta tres cartas normales con el mismo número.</span></>}
         {game.phase === 'chain' && <><b>¿Añades otra?</b><span>Lanza cualquier número que ya aparezca en un ataque o una defensa, sin importar la figura.</span></>}
         {game.phase === 'defend' && game.secretAttack && <><b>Ataque oculto</b><span>Prueba una defensa, responde con +4 o recoge todas las cartas de la mesa.</span></>}
         {game.phase === 'defend' && !game.secretAttack && <><b>Defensa {game.defenseIndex + 1}/{game.attacks.length}</b><span>Supera el número, usa {SUIT_DATA[game.trump].label}, Rey, Peón o responde con +4.</span></>}
@@ -630,18 +679,18 @@ export default function Home() {
         >
           {self.hand.map((card, index) => {
             const invalidDefense = defending && !!currentAttack && !game.secretAttack && !canDefend(card, currentAttack, game.trump);
-            const attackPhase = game.phase === 'attack' || game.phase === 'chain';
-            const playableAttack = isAttackCard(card);
-            const invalidAttack = attackPhase && (!playableAttack || (game.phase === 'chain' && (game.attacks.length >= MAX_ATTACKS || !canThrowIn(card, game.attacks, game.defenses))));
+            const selectedForAttack = attackCombo.includes(card.id);
+            const canJoinOpeningCombo = selectedForAttack || !firstAttackChoice || (!secretChoice && selectedAttackCards.length < 3 && firstAttackChoice.kind === 'number' && card.kind === 'number' && firstAttackChoice.value === card.value);
+            const invalidAttack = game.phase === 'attack' ? !canJoinOpeningCombo : game.phase === 'chain' && (game.attacks.length >= MAX_ATTACKS || !canThrowIn(card, game.attacks, game.defenses));
             const invalidPenaltyResponse = game.phase === 'penalty' && card.kind !== 'draw';
-            return <CardFace card={card} key={card.id} index={index} fanOffset={index - (self.hand.length - 1) / 2} selected={selected === card.id} disabled={game.phase === 'result'} onClick={() => setSelected(selected === card.id ? null : card.id)} compact={invalidDefense || invalidAttack || invalidPenaltyResponse} />;
+            return <CardFace card={card} key={card.id} index={index} fanOffset={index - (self.hand.length - 1) / 2} selected={game.phase === 'attack' ? selectedForAttack : selected === card.id} disabled={game.phase === 'result'} onClick={() => selectHandCard(card)} compact={invalidDefense || invalidAttack || invalidPenaltyResponse} />;
           })}
         </div>
         <div className="action-dock">
           {(game.phase === 'attack' || game.phase === 'chain') && <>
             {game.phase === 'chain' && <button className="take-hit-button retreat-button" onClick={finishAttack}>Terminar ataque</button>}
-            {game.phase === 'attack' && <button className={`secret-button ${secretChoice ? 'active' : ''}`} disabled={game.secretUsed[game.attacker]} onClick={() => setSecretChoice(!secretChoice)} title="Oculta una carta una vez por partida">{game.secretUsed[game.attacker] ? 'Oculta usada' : secretChoice ? 'Oculta lista' : 'Jugada oculta'}</button>}
-            <button className="play-button" disabled={!canAttack} onClick={playAttack}>{secretChoice ? 'Atacar oculta' : game.phase === 'chain' ? 'Añadir carta' : 'Atacar'}</button>
+            {game.phase === 'attack' && <button className={`secret-button ${secretChoice ? 'active' : ''}`} disabled={game.secretUsed[game.attacker]} onClick={() => { const nextSecret = !secretChoice; setSecretChoice(nextSecret); if (nextSecret && attackCombo.length > 1) setAttackCombo(attackCombo.slice(0, 1)); }} title="Oculta una carta una vez por partida">{game.secretUsed[game.attacker] ? 'Oculta usada' : secretChoice ? 'Oculta lista' : 'Jugada oculta'}</button>}
+            <button className="play-button" disabled={!canAttack} onClick={playAttack}>{secretChoice ? 'Atacar oculta' : game.phase === 'chain' ? 'Añadir carta' : attackCombo.length > 1 ? `Atacar ×${attackCombo.length}` : 'Atacar'}</button>
           </>}
           {game.phase === 'defend' && <>
             <button className="take-hit-button" onClick={() => resolveDefense(null)}>Recoger mesa</button>
@@ -678,7 +727,7 @@ function RulesModal({ onClose }: { onClose: () => void }) {
         <h2 id="rules-title">Ataca, pasa y responde</h2>
         <ol>
           <li><b>Roba hasta 8.</b><span>Mientras quede mazo, cada jugador completa su mano hasta tener ocho cartas.</span></li>
-          <li><b>Ataca.</b><span>Empieza jugando una sola carta. El rival debe responder antes de que puedas añadir otra.</span></li>
+          <li><b>Ataca o combina.</b><span>Puedes empezar con una carta o seleccionar hasta tres cartas normales del mismo número, como dos 5 o tres 5.</span></li>
           <li><b>Defiende.</b><span>Responde con la misma figura y un número mayor, o con la figura dominante.</span></li>
           <li><b>Encadena como en Durak.</b><span>Después de una defensa, puedes añadir cualquier número que ya se vea en la mesa. Si un 2 fue cubierto con un 5, puedes lanzar otro 2 u otro 5 de cualquier figura. Máximo seis ataques.</span></li>
           <li><b>Juega Rey.</b><span>Cancela de inmediato todo el ataque y te entrega el siguiente turno.</span></li>
