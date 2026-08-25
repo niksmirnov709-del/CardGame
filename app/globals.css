@@ -108,8 +108,8 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 
 /* Card objects */
 .game-card {
-  --card-artwork: url('/assets/card-number-ai.webp');
-  --card-tint: #8a3340;
+  --card-artwork: url('/assets/card-circle-ai.webp');
+  --card-tint: transparent;
   position: relative;
   width: 102px;
   aspect-ratio: .704;
@@ -159,10 +159,10 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 .card-copy strong, .card-copy small { display: block; width: 100%; max-width: 100%; overflow: hidden; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
 .card-copy strong { color: #fff; font-size: 10px; text-shadow: 0 2px #000; }
 .card-copy small { margin-top: 2px; color: #e2ddd5; font-size: 7px; font-weight: 900; }
-.card-circulo { --card-tint: #c72f42; }
-.card-triangulo { --card-tint: #c38b22; }
-.card-cuadrado { --card-tint: #277ca9; }
-.card-rombo { --card-tint: #32855b; }
+.card-circulo { --card-artwork: url('/assets/card-circle-ai.webp'); --card-tint: transparent; }
+.card-triangulo { --card-artwork: url('/assets/card-triangle-ai.webp'); --card-tint: transparent; }
+.card-cuadrado { --card-artwork: url('/assets/card-square-ai.webp'); --card-tint: transparent; }
+.card-rombo { --card-artwork: url('/assets/card-diamond-ai.webp'); --card-tint: transparent; }
 .card-rey { --card-artwork: url('/assets/card-king-ai.webp'); --card-tint: transparent; }
 .card-peon { --card-artwork: url('/assets/card-pawn-ai.webp'); --card-tint: transparent; }
 .card-mas4 { --card-artwork: url('/assets/card-plus4-ai.webp'); --card-tint: transparent; }
