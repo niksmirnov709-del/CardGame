@@ -1,0 +1,465 @@
+'use client';
+
+import { useState, type CSSProperties } from 'react';
+
+type Suit = 'fuego' | 'marea' | 'bosque' | 'rayo';
+type Phase = 'attack' | 'defend' | 'result';
+
+type Card = {
+  id: string;
+  kind: 'strike' | 'shield';
+  suit: Suit | 'guardia';
+  value: number;
+  title: string;
+};
+
+type Player = {
+  name: string;
+  health: number;
+  hand: Card[];
+  pulse: number;
+};
+
+type Game = {
+  players: [Player, Player];
+  deck: Card[];
+  trump: Suit;
+  round: number;
+  exchange: number;
+  attacker: number;
+  viewer: number;
+  phase: Phase;
+  attackCard: Card | null;
+  defenseCard: Card | null;
+  attackBonus: number;
+  discardCount: number;
+  nextAttacker: number;
+  result: string;
+  resultDetail: string;
+  winner: number | null;
+};
+
+const SUITS: Suit[] = ['fuego', 'marea', 'bosque', 'rayo'];
+const SUIT_DATA: Record<Suit | 'guardia', { label: string; symbol: string }> = {
+  fuego: { label: 'Fuego', symbol: '▲' },
+  marea: { label: 'Marea', symbol: '≈' },
+  bosque: { label: 'Bosque', symbol: '✦' },
+  rayo: { label: 'Rayo', symbol: 'ϟ' },
+  guardia: { label: 'Guardia', symbol: '◆' },
+};
+
+function shuffle<T>(items: T[]) {
+  const result = [...items];
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const target = Math.floor(Math.random() * (index + 1));
+    [result[index], result[target]] = [result[target], result[index]];
+  }
+  return result;
+}
+
+function createDeck(): Card[] {
+  const strikes = SUITS.flatMap((suit) =>
+    Array.from({ length: 9 }, (_, index) => {
+      const value = index + 2;
+      return {
+        id: `${suit}-${value}`,
+        kind: 'strike' as const,
+        suit,
+        value,
+        title: value >= 8 ? 'Asalto' : value >= 5 ? 'Carga' : 'Golpe',
+      };
+    }),
+  );
+  const shields: Card[] = Array.from({ length: 4 }, (_, index) => ({
+    id: `guardia-${index}`,
+    kind: 'shield',
+    suit: 'guardia',
+    value: 0,
+    title: 'Escudo total',
+  }));
+  return shuffle([...strikes, ...shields]);
+}
+
+function drawToSix(hand: Card[], deck: Card[]) {
+  const nextHand = [...hand];
+  while (nextHand.length < 6 && deck.length > 0) {
+    const drawn = deck.shift();
+    if (drawn) nextHand.push(drawn);
+  }
+  return nextHand;
+}
+
+function newGame(): Game {
+  const deck = createDeck();
+  const firstHand = drawToSix([], deck);
+  const secondHand = drawToSix([], deck);
+  return {
+    players: [
+      { name: 'Jugador 1', health: 20, hand: firstHand, pulse: 0 },
+      { name: 'Jugador 2', health: 20, hand: secondHand, pulse: 0 },
+    ],
+    deck,
+    trump: SUITS[Math.floor(Math.random() * SUITS.length)],
+    round: 1,
+    exchange: 0,
+    attacker: 0,
+    viewer: 0,
+    phase: 'attack',
+    attackCard: null,
+    defenseCard: null,
+    attackBonus: 0,
+    discardCount: 0,
+    nextAttacker: 0,
+    result: '',
+    resultDetail: '',
+    winner: null,
+  };
+}
+
+function canDefend(card: Card, attack: Card, trump: Suit) {
+  if (card.kind === 'shield') return true;
+  if (card.kind !== 'strike' || attack.kind !== 'strike') return false;
+  if (attack.suit === trump) return card.suit === trump && card.value > attack.value;
+  return (card.suit === attack.suit && card.value > attack.value) || card.suit === trump;
+}
+
+function playTone(kind: 'card' | 'block' | 'hit' | 'start', enabled: boolean) {
+  if (!enabled || typeof window === 'undefined') return;
+  const AudioContextClass = window.AudioContext ||
+    (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextClass) return;
+  const context = new AudioContextClass();
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  const frequencies = { card: 240, block: 520, hit: 100, start: 340 };
+  oscillator.frequency.setValueAtTime(frequencies[kind], context.currentTime);
+  oscillator.frequency.exponentialRampToValueAtTime(kind === 'hit' ? 55 : frequencies[kind] * 1.35, context.currentTime + 0.12);
+  gain.gain.setValueAtTime(0.08, context.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.16);
+  oscillator.connect(gain).connect(context.destination);
+  oscillator.start();
+  oscillator.stop(context.currentTime + 0.17);
+}
+
+function CardFace({ card, compact = false, selected = false, disabled = false, index = 0, onClick, table = false }: {
+  card: Card;
+  compact?: boolean;
+  selected?: boolean;
+  disabled?: boolean;
+  index?: number;
+  onClick?: () => void;
+  table?: boolean;
+}) {
+  const data = SUIT_DATA[card.suit];
+  const Tag = onClick ? 'button' : 'div';
+  return (
+    <Tag
+      className={`game-card card-${card.suit} ${compact ? 'compact-card' : ''} ${selected ? 'is-selected' : ''} ${disabled ? 'is-disabled' : ''} ${table ? 'table-card' : ''}`}
+      style={{ '--card-index': index } as CSSProperties}
+      onClick={onClick}
+      disabled={onClick ? disabled : undefined}
+      aria-pressed={onClick ? selected : undefined}
+      aria-label={`${card.title} de ${data.label}${card.kind === 'strike' ? `, fuerza ${card.value}` : ''}`}
+    >
+      <span className="card-edge" aria-hidden="true" />
+      <span className="corner-value">{card.kind === 'shield' ? data.symbol : card.value}</span>
+      <span className="card-art" aria-hidden="true"><i>{data.symbol}</i><em /></span>
+      <span className="card-copy"><strong>{card.title}</strong><small>{data.label}</small></span>
+      <span className="corner-value corner-bottom">{card.kind === 'shield' ? data.symbol : card.value}</span>
+    </Tag>
+  );
+}
+
+function CardBack({ index = 0, small = false }: { index?: number; small?: boolean }) {
+  return (
+    <span className={`card-back ${small ? 'small-back' : ''}`} style={{ '--card-index': index } as CSSProperties}>
+      <i>P</i>
+    </span>
+  );
+}
+
+function Health({ player, side }: { player: Player; side: 'self' | 'opponent' }) {
+  return (
+    <div className={`player-badge ${side}`}>
+      <div className="avatar" aria-hidden="true"><span>{player.name.slice(-1)}</span></div>
+      <div className="player-stats">
+        <div className="name-row"><strong>{side === 'self' ? 'TÚ' : 'RIVAL'}</strong><span>{player.health}/20</span></div>
+        <div className="health-bar"><span style={{ width: `${Math.max(0, player.health) * 5}%` }} /></div>
+        <div className="pulse-row" aria-label={`Impulso ${player.pulse} de 3`}>
+          <small>IMPULSO</small>
+          {[0, 1, 2].map((dot) => <i className={dot < player.pulse ? 'filled' : ''} key={dot} />)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function Home() {
+  const [screen, setScreen] = useState<'menu' | 'game' | 'winner'>('menu');
+  const [game, setGame] = useState<Game | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [passTo, setPassTo] = useState<number | null>(null);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [soundOn, setSoundOn] = useState(true);
+  const [impact, setImpact] = useState<'hit' | 'block' | ''>('');
+
+  const begin = () => {
+    const created = newGame();
+    setGame(created);
+    setScreen('game');
+    setSelected(null);
+    setPassTo(0);
+    playTone('start', soundOn);
+  };
+
+  const triggerImpact = (kind: 'hit' | 'block') => {
+    setImpact(kind);
+    window.setTimeout(() => setImpact(''), 520);
+    if ('vibrate' in navigator) navigator.vibrate(kind === 'hit' ? [45, 35, 70] : 30);
+  };
+
+  const playAttack = () => {
+    if (!game || game.phase !== 'attack' || !selected) return;
+    const card = game.players[game.attacker].hand.find((item) => item.id === selected);
+    if (!card || card.kind !== 'strike') return;
+    const players = game.players.map((player) => ({ ...player, hand: [...player.hand] })) as [Player, Player];
+    const bonus = players[game.attacker].pulse === 3 ? 2 : 0;
+    if (bonus) players[game.attacker].pulse = 0;
+    players[game.attacker].hand = players[game.attacker].hand.filter((item) => item.id !== card.id);
+    const defender = 1 - game.attacker;
+    setGame({ ...game, players, viewer: defender, phase: 'defend', attackCard: card, defenseCard: null, attackBonus: bonus });
+    setSelected(null);
+    setPassTo(defender);
+    playTone('card', soundOn);
+  };
+
+  const resolveDefense = (defense: Card | null) => {
+    if (!game || !game.attackCard || game.phase !== 'defend') return;
+    const defender = 1 - game.attacker;
+    if (defense && !canDefend(defense, game.attackCard, game.trump)) return;
+    const players = game.players.map((player) => ({ ...player, hand: [...player.hand] })) as [Player, Player];
+    let result = '';
+    let resultDetail = '';
+    let nextAttacker = game.attacker;
+    let winner: number | null = null;
+
+    if (defense) {
+      players[defender].hand = players[defender].hand.filter((item) => item.id !== defense.id);
+      players[defender].pulse = Math.min(3, players[defender].pulse + 1);
+      nextAttacker = defender;
+      result = defense.kind === 'shield' ? '¡Escudo total!' : '¡Ataque bloqueado!';
+      resultDetail = `${players[defender].name} gana el derecho a atacar.`;
+      triggerImpact('block');
+      playTone('block', soundOn);
+    } else {
+      const damage = Math.max(2, Math.ceil((game.attackCard.value + game.attackBonus) / 3));
+      players[defender].health = Math.max(0, players[defender].health - damage);
+      result = `-${damage} de vida`;
+      resultDetail = `${players[game.attacker].name} mantiene el ataque.`;
+      if (players[defender].health === 0) winner = game.attacker;
+      triggerImpact('hit');
+      playTone('hit', soundOn);
+    }
+
+    setGame({
+      ...game,
+      players,
+      phase: 'result',
+      defenseCard: defense,
+      nextAttacker,
+      result,
+      resultDetail,
+      winner,
+    });
+    setSelected(null);
+  };
+
+  const continueAfterResult = () => {
+    if (!game || game.phase !== 'result') return;
+    if (game.winner !== null) {
+      setScreen('winner');
+      return;
+    }
+    const deck = [...game.deck];
+    const players = game.players.map((player) => ({ ...player, hand: [...player.hand] })) as [Player, Player];
+    players[game.attacker].hand = drawToSix(players[game.attacker].hand, deck);
+    players[1 - game.attacker].hand = drawToSix(players[1 - game.attacker].hand, deck);
+    const exchange = game.exchange + 1;
+    const newRound = Math.floor(exchange / 4) + 1;
+    const trump = exchange % 4 === 0 ? SUITS[(SUITS.indexOf(game.trump) + 1) % SUITS.length] : game.trump;
+    let winner: number | null = null;
+    if (deck.length === 0 && players.every((player) => player.hand.length === 0)) {
+      winner = players[0].health === players[1].health ? game.nextAttacker : players[0].health > players[1].health ? 0 : 1;
+    }
+    const next: Game = {
+      ...game,
+      players,
+      deck,
+      trump,
+      round: newRound,
+      exchange,
+      attacker: game.nextAttacker,
+      viewer: game.nextAttacker,
+      phase: 'attack',
+      attackCard: null,
+      defenseCard: null,
+      attackBonus: 0,
+      discardCount: game.discardCount + 1 + (game.defenseCard ? 1 : 0),
+      result: '',
+      resultDetail: '',
+      winner,
+    };
+    setGame(next);
+    setSelected(null);
+    if (winner !== null) setScreen('winner');
+    else if (game.nextAttacker !== game.viewer) setPassTo(game.nextAttacker);
+  };
+
+  if (screen === 'menu') {
+    return (
+      <main className="game-shell menu-screen">
+        <div className="menu-deck" aria-hidden="true">
+          <CardFace card={{ id: 'menu-fire', kind: 'strike', suit: 'fuego', value: 9, title: 'Asalto' }} />
+          <CardFace card={{ id: 'menu-tide', kind: 'strike', suit: 'marea', value: 7, title: 'Carga' }} />
+          <div className="versus-stamp">VS</div>
+        </div>
+        <p className="eyebrow">Duelo local para dos</p>
+        <h1>PULSO</h1>
+        <p className="tagline">Una carta. Una respuesta. Pasa el dispositivo.</p>
+        <div className="menu-actions">
+          <button className="primary-button" onClick={begin}>Nueva partida</button>
+          <button className="secondary-button" onClick={() => setRulesOpen(true)}>Cómo jugar</button>
+        </div>
+        <p className="menu-footnote">2 jugadores · 1 dispositivo · 5-10 minutos</p>
+        {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
+      </main>
+    );
+  }
+
+  if (!game) return null;
+  const self = game.players[game.viewer];
+  const opponent = game.players[1 - game.viewer];
+  const selectedCard = self.hand.find((card) => card.id === selected) ?? null;
+  const defending = game.phase === 'defend';
+  const selectedCanDefend = !!(selectedCard && game.attackCard && canDefend(selectedCard, game.attackCard, game.trump));
+  const canAttack = selectedCard?.kind === 'strike';
+
+  if (screen === 'winner') {
+    const winner = game.winner ?? 0;
+    return (
+      <main className="game-shell winner-screen">
+        <div className="victory-rays" aria-hidden="true" />
+        <div className="winner-avatar">{winner + 1}</div>
+        <p className="eyebrow">Fin del duelo</p>
+        <h1>{game.players[winner].name} gana</h1>
+        <p>Terminó con {game.players[winner].health} puntos de vida.</p>
+        <div className="menu-actions">
+          <button className="primary-button" onClick={begin}>Revancha</button>
+          <button className="secondary-button" onClick={() => setScreen('menu')}>Menú</button>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className={`game-shell battle-screen impact-${impact}`}>
+      <header className="battle-topbar">
+        <button className="icon-button" aria-label="Volver al menú" title="Volver al menú" onClick={() => setScreen('menu')}>×</button>
+        <div className="round-label">
+          <span>RONDA {game.round}</span>
+          <b className={`trump trump-${game.trump}`}>{SUIT_DATA[game.trump].symbol} {SUIT_DATA[game.trump].label} domina</b>
+        </div>
+        <div className="top-actions">
+          <button className="icon-button" aria-label={soundOn ? 'Desactivar sonido' : 'Activar sonido'} title={soundOn ? 'Desactivar sonido' : 'Activar sonido'} onClick={() => setSoundOn(!soundOn)}>{soundOn ? '♪' : '∅'}</button>
+          <button className="icon-button" aria-label="Cómo jugar" title="Cómo jugar" onClick={() => setRulesOpen(true)}>?</button>
+        </div>
+      </header>
+
+      <section className="opponent-zone">
+        <Health player={opponent} side="opponent" />
+        <div className="hidden-hand" aria-label={`${opponent.hand.length} cartas ocultas del rival`}>
+          {opponent.hand.map((card, index) => <CardBack key={card.id} index={index} small />)}
+        </div>
+      </section>
+
+      <section className="arena" aria-label="Arena de cartas">
+        <div className="deck-stack" aria-label={`${game.deck.length} cartas en el mazo`}>
+          {game.deck.length > 0 && <><CardBack /><span className="deck-layer layer-one" /><span className="deck-layer layer-two" /></>}
+          <b>{game.deck.length}</b><small>MAZO</small>
+        </div>
+
+        <div className="combat-slots">
+          <div className="combat-slot attack-slot">
+            {game.attackCard ? <CardFace card={game.attackCard} table /> : <span>ATAQUE</span>}
+            {game.attackBonus > 0 && <i className="bonus-tag">+{game.attackBonus}</i>}
+          </div>
+          <div className={`clash-mark ${game.attackCard ? 'active' : ''}`}>VS</div>
+          <div className="combat-slot defense-slot">
+            {game.defenseCard ? <CardFace card={game.defenseCard} table /> : <span>DEFENSA</span>}
+          </div>
+        </div>
+
+        <div className="discard-pile" aria-label={`${game.discardCount} cartas descartadas`}>
+          {game.discardCount > 0 && <CardBack />}
+          <b>{game.discardCount}</b><small>USADAS</small>
+        </div>
+      </section>
+
+      <section className="turn-panel" aria-live="polite">
+        {game.phase === 'attack' && <><b>Tu ataque</b><span>Elige una carta. Las cartas altas golpean más, pero cuesta más defenderlas.</span></>}
+        {game.phase === 'defend' && <><b>Tu defensa</b><span>Supera el valor con el mismo símbolo, usa {SUIT_DATA[game.trump].label} o juega un escudo.</span></>}
+        {game.phase === 'result' && <><b>{game.result}</b><span>{game.resultDetail}</span></>}
+      </section>
+
+      <section className="player-zone">
+        <Health player={self} side="self" />
+        <div className="player-hand" aria-label={`Mano de ${self.name}`}>
+          {self.hand.map((card, index) => {
+            const invalidDefense = defending && !!game.attackCard && !canDefend(card, game.attackCard, game.trump);
+            const invalidAttack = game.phase === 'attack' && card.kind !== 'strike';
+            return <CardFace card={card} key={card.id} index={index} selected={selected === card.id} disabled={game.phase === 'result'} onClick={() => setSelected(selected === card.id ? null : card.id)} compact={invalidDefense || invalidAttack} />;
+          })}
+        </div>
+        <div className="action-dock">
+          {game.phase === 'attack' && <button className="play-button" disabled={!canAttack} onClick={playAttack}>{game.players[game.attacker].pulse === 3 ? 'Atacar con +2' : 'Jugar ataque'}</button>}
+          {game.phase === 'defend' && <>
+            <button className="take-hit-button" onClick={() => resolveDefense(null)}>Recibir golpe</button>
+            <button className="play-button defend-button" disabled={!selectedCanDefend} onClick={() => resolveDefense(selectedCard)}>Bloquear</button>
+          </>}
+          {game.phase === 'result' && <button className="play-button" onClick={continueAfterResult}>{game.winner !== null ? 'Ver ganador' : game.nextAttacker === game.viewer ? 'Atacar ahora' : 'Pasar turno'}</button>}
+        </div>
+      </section>
+
+      {passTo !== null && (
+        <div className="pass-screen" role="dialog" aria-modal="true">
+          <div className="pass-cards" aria-hidden="true"><CardBack /><CardBack /></div>
+          <p className="eyebrow">Cartas ocultas</p>
+          <h2>Pasa el dispositivo</h2>
+          <p>Ahora juega <strong>{game.players[passTo].name}</strong>. No mires hasta que lo tenga.</p>
+          <button className="primary-button" onClick={() => setPassTo(null)}>Ya lo tengo</button>
+        </div>
+      )}
+      {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
+    </main>
+  );
+}
+
+function RulesModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="rules-title">
+      <section className="rules-modal">
+        <button className="modal-close" aria-label="Cerrar" onClick={onClose}>×</button>
+        <p className="eyebrow">Reglas rápidas</p>
+        <h2 id="rules-title">Ataca, pasa y responde</h2>
+        <ol>
+          <li><b>Ataca.</b><span>Juega una carta y pasa el dispositivo.</span></li>
+          <li><b>Defiende.</b><span>Usa el mismo símbolo con mayor valor, el símbolo dominante o un escudo.</span></li>
+          <li><b>Cambia el control.</b><span>Si bloqueas, tú atacas. Si recibes el golpe, el rival repite.</span></li>
+          <li><b>Llena Impulso.</b><span>Tres defensas exitosas dan +2 al siguiente ataque.</span></li>
+        </ol>
+        <p className="rules-win">Gana quien deje al rival sin vida.</p>
+        <button className="primary-button" onClick={onClose}>Entendido</button>
+      </section>
+    </div>
+  );
+}
