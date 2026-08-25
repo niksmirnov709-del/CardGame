@@ -169,7 +169,7 @@ function CardFace({ card, compact = false, selected = false, disabled = false, i
   table?: boolean;
 }) {
   const data = SUIT_DATA[card.suit];
-  const ability = card.kind === 'king' ? 'Cancela' : card.kind === 'pawn' ? 'Reversa' : card.kind === 'draw' ? 'Roba 2' : null;
+  const ability = card.kind === 'king' ? 'Cancela' : card.kind === 'pawn' ? 'Reversa' : card.kind === 'draw' ? 'Roba 4' : null;
   const special = card.kind !== 'number';
   const Tag = onClick ? 'button' : 'div';
   return (
@@ -262,11 +262,11 @@ export default function Home() {
     if (firstAttack.kind === 'draw') {
       const deck = [...game.deck];
       const players = game.players.map((player) => ({ ...player, hand: [...player.hand] })) as [Player, Player];
-      for (let count = 0; count < 2 && deck.length > 0; count += 1) {
+      for (let count = 0; count < 4 && deck.length > 0; count += 1) {
         const card = deck.shift();
         if (card) players[defender].hand.push(card);
       }
-      setGame({ ...game, deck, players, phase: 'result', nextAttacker: game.attacker, result: '¡+4! Roba 2', resultDetail: `${players[defender].name} añade dos cartas a su mano.`, pickedUp: false });
+      setGame({ ...game, deck, players, phase: 'result', nextAttacker: game.attacker, result: '¡+4! Roba 4', resultDetail: `${players[defender].name} añade cuatro cartas a su mano.`, pickedUp: false });
       setSelected(null);
       triggerImpact('hit');
       playTone('hit', soundOn);
@@ -558,7 +558,7 @@ function RulesModal({ onClose }: { onClose: () => void }) {
           <li><b>Defiende.</b><span>Responde a cada carta con el mismo símbolo y un número mayor, o con el símbolo dominante.</span></li>
           <li><b>Juega Rey.</b><span>Cancela de inmediato todo el ataque y te entrega el siguiente turno.</span></li>
           <li><b>Juega Peón.</b><span>Devuelve el ataque: quien lo lanzó pasa a ser quien debe defenderse.</span></li>
-          <li><b>Juega +4.</b><span>El rival roba dos cartas del mazo y tú conservas el turno.</span></li>
+          <li><b>Juega +4.</b><span>El rival roba cuatro cartas del mazo y tú conservas el turno.</span></li>
           <li><b>Recoge.</b><span>Si no puedes defenderte, recoge todas las cartas que haya sobre la mesa. No existen vidas.</span></li>
           <li><b>Vacía tu mano.</b><span>Cuando el mazo se agote, gana el primer jugador que se quede sin cartas.</span></li>
         </ol>
