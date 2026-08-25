@@ -4,6 +4,7 @@ import { useState, type CSSProperties } from 'react';
 
 type Suit = 'fuego' | 'marea' | 'bosque' | 'rayo';
 type Phase = 'attack' | 'defend' | 'result';
+type EventId = 'low_power' | 'double_pulse' | 'bastion' | 'eclipse' | 'wide_hand';
 
 type Card = {
   id: string;
@@ -24,6 +25,7 @@ type Game = {
   players: [Player, Player];
   deck: Card[];
   trump: Suit;
+  event: EventId;
   round: number;
   exchange: number;
   attacker: number;
@@ -32,6 +34,8 @@ type Game = {
   attackCard: Card | null;
   defenseCard: Card | null;
   attackBonus: number;
+  secretAttack: boolean;
+  secretUsed: [boolean, boolean];
   discardCount: number;
   nextAttacker: number;
   result: string;
@@ -47,6 +51,19 @@ const SUIT_DATA: Record<Suit | 'guardia', { label: string; symbol: string }> = {
   rayo: { label: 'Rayo', symbol: 'ϟ' },
   guardia: { label: 'Guardia', symbol: '◆' },
 };
+
+const EVENTS: Record<EventId, { name: string; symbol: string; description: string }> = {
+  low_power: { name: 'Rebelión menor', symbol: '↑', description: 'Las cartas de fuerza 2 a 5 reciben +2 de fuerza.' },
+  double_pulse: { name: 'Sobrecarga', symbol: '×2', description: 'Cada defensa exitosa llena 2 puntos de Impulso.' },
+  bastion: { name: 'Bastión vivo', symbol: '+', description: 'Cada defensa exitosa recupera 1 punto de vida.' },
+  eclipse: { name: 'Eclipse', symbol: 'Ø', description: 'El símbolo dominante no sirve para defender esta ronda.' },
+  wide_hand: { name: 'Marea de cartas', symbol: '7', description: 'Los jugadores roban hasta tener 7 cartas.' },
+};
+
+function pickEvent(except?: EventId) {
+  const choices = (Object.keys(EVENTS) as EventId[]).filter((event) => event !== except);
+  return choices[Math.floor(Math.random() * choices.length)];
+}
 
 function shuffle<T>(items: T[]) {
   const result = [...items];
@@ -80,9 +97,9 @@ function createDeck(): Card[] {
   return shuffle([...strikes, ...shields]);
 }
 
-function drawToSix(hand: Card[], deck: Card[]) {
+function drawToLimit(hand: Card[], deck: Card[], limit = 6) {
   const nextHand = [...hand];
-  while (nextHand.length < 6 && deck.length > 0) {
+  while (nextHand.length < limit && deck.length > 0) {
     const drawn = deck.shift();
     if (drawn) nextHand.push(drawn);
   }
@@ -91,8 +108,10 @@ function drawToSix(hand: Card[], deck: Card[]) {
 
 function newGame(): Game {
   const deck = createDeck();
-  const firstHand = drawToSix([], deck);
-  const secondHand = drawToSix([], deck);
+  const event = pickEvent();
+  const handLimit = event === 'wide_hand' ? 7 : 6;
+  const firstHand = drawToLimit([], deck, handLimit);
+  const secondHand = drawToLimit([], deck, handLimit);
   return {
     players: [
       { name: 'Jugador 1', health: 20, hand: firstHand, pulse: 0 },
@@ -100,6 +119,7 @@ function newGame(): Game {
     ],
     deck,
     trump: SUITS[Math.floor(Math.random() * SUITS.length)],
+    event,
     round: 1,
     exchange: 0,
     attacker: 0,
@@ -108,6 +128,8 @@ function newGame(): Game {
     attackCard: null,
     defenseCard: null,
     attackBonus: 0,
+    secretAttack: false,
+    secretUsed: [false, false],
     discardCount: 0,
     nextAttacker: 0,
     result: '',
@@ -116,11 +138,18 @@ function newGame(): Game {
   };
 }
 
-function canDefend(card: Card, attack: Card, trump: Suit) {
+function cardPower(card: Card, event: EventId) {
+  return card.value + (event === 'low_power' && card.kind === 'strike' && card.value <= 5 ? 2 : 0);
+}
+
+function canDefend(card: Card, attack: Card, trump: Suit, event: EventId) {
   if (card.kind === 'shield') return true;
   if (card.kind !== 'strike' || attack.kind !== 'strike') return false;
-  if (attack.suit === trump) return card.suit === trump && card.value > attack.value;
-  return (card.suit === attack.suit && card.value > attack.value) || card.suit === trump;
+  const cardValue = cardPower(card, event);
+  const attackValue = cardPower(attack, event);
+  const trumpEnabled = event !== 'eclipse';
+  if (attack.suit === trump && trumpEnabled) return card.suit === trump && cardValue > attackValue;
+  return (card.suit === attack.suit && cardValue > attackValue) || (trumpEnabled && card.suit === trump);
 }
 
 function playTone(kind: 'card' | 'block' | 'hit' | 'start', enabled: boolean) {
@@ -202,13 +231,17 @@ export default function Home() {
   const [rulesOpen, setRulesOpen] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
   const [impact, setImpact] = useState<'hit' | 'block' | ''>('');
+  const [secretChoice, setSecretChoice] = useState(false);
+  const [eventReveal, setEventReveal] = useState(false);
 
   const begin = () => {
     const created = newGame();
     setGame(created);
     setScreen('game');
     setSelected(null);
+    setSecretChoice(false);
     setPassTo(0);
+    setEventReveal(true);
     playTone('start', soundOn);
   };
 
@@ -225,10 +258,13 @@ export default function Home() {
     const players = game.players.map((player) => ({ ...player, hand: [...player.hand] })) as [Player, Player];
     const bonus = players[game.attacker].pulse === 3 ? 2 : 0;
     if (bonus) players[game.attacker].pulse = 0;
+    const secretUsed: [boolean, boolean] = [...game.secretUsed];
+    if (secretChoice) secretUsed[game.attacker] = true;
     players[game.attacker].hand = players[game.attacker].hand.filter((item) => item.id !== card.id);
     const defender = 1 - game.attacker;
-    setGame({ ...game, players, viewer: defender, phase: 'defend', attackCard: card, defenseCard: null, attackBonus: bonus });
+    setGame({ ...game, players, viewer: defender, phase: 'defend', attackCard: card, defenseCard: null, attackBonus: bonus, secretAttack: secretChoice, secretUsed });
     setSelected(null);
+    setSecretChoice(false);
     setPassTo(defender);
     playTone('card', soundOn);
   };
@@ -236,26 +272,30 @@ export default function Home() {
   const resolveDefense = (defense: Card | null) => {
     if (!game || !game.attackCard || game.phase !== 'defend') return;
     const defender = 1 - game.attacker;
-    if (defense && !canDefend(defense, game.attackCard, game.trump)) return;
+    const blocked = !!defense && canDefend(defense, game.attackCard, game.trump, game.event);
+    if (defense && !blocked && !game.secretAttack) return;
     const players = game.players.map((player) => ({ ...player, hand: [...player.hand] })) as [Player, Player];
     let result = '';
     let resultDetail = '';
     let nextAttacker = game.attacker;
     let winner: number | null = null;
 
-    if (defense) {
-      players[defender].hand = players[defender].hand.filter((item) => item.id !== defense.id);
-      players[defender].pulse = Math.min(3, players[defender].pulse + 1);
+    if (defense) players[defender].hand = players[defender].hand.filter((item) => item.id !== defense.id);
+
+    if (blocked) {
+      const pulseGain = game.event === 'double_pulse' ? 2 : 1;
+      players[defender].pulse = Math.min(3, players[defender].pulse + pulseGain);
+      if (game.event === 'bastion') players[defender].health = Math.min(20, players[defender].health + 1);
       nextAttacker = defender;
       result = defense.kind === 'shield' ? '¡Escudo total!' : '¡Ataque bloqueado!';
-      resultDetail = `${players[defender].name} gana el derecho a atacar.`;
+      resultDetail = `${players[defender].name} gana el ataque${game.event === 'bastion' ? ' y recupera 1 de vida' : ''}.`;
       triggerImpact('block');
       playTone('block', soundOn);
     } else {
-      const damage = Math.max(2, Math.ceil((game.attackCard.value + game.attackBonus) / 3));
+      const damage = Math.max(2, Math.ceil((cardPower(game.attackCard, game.event) + game.attackBonus) / 3));
       players[defender].health = Math.max(0, players[defender].health - damage);
-      result = `-${damage} de vida`;
-      resultDetail = `${players[game.attacker].name} mantiene el ataque.`;
+      result = defense ? `Defensa rota: -${damage}` : `-${damage} de vida`;
+      resultDetail = `${game.secretAttack ? `${game.attackCard.title} ${game.attackCard.value} revelado. ` : ''}${players[game.attacker].name} mantiene el ataque.`;
       if (players[defender].health === 0) winner = game.attacker;
       triggerImpact('hit');
       playTone('hit', soundOn);
@@ -282,11 +322,14 @@ export default function Home() {
     }
     const deck = [...game.deck];
     const players = game.players.map((player) => ({ ...player, hand: [...player.hand] })) as [Player, Player];
-    players[game.attacker].hand = drawToSix(players[game.attacker].hand, deck);
-    players[1 - game.attacker].hand = drawToSix(players[1 - game.attacker].hand, deck);
     const exchange = game.exchange + 1;
     const newRound = Math.floor(exchange / 4) + 1;
-    const trump = exchange % 4 === 0 ? SUITS[(SUITS.indexOf(game.trump) + 1) % SUITS.length] : game.trump;
+    const startsNewRound = exchange % 4 === 0;
+    const trump = startsNewRound ? SUITS[(SUITS.indexOf(game.trump) + 1) % SUITS.length] : game.trump;
+    const event = startsNewRound ? pickEvent(game.event) : game.event;
+    const handLimit = event === 'wide_hand' ? 7 : 6;
+    players[game.attacker].hand = drawToLimit(players[game.attacker].hand, deck, handLimit);
+    players[1 - game.attacker].hand = drawToLimit(players[1 - game.attacker].hand, deck, handLimit);
     let winner: number | null = null;
     if (deck.length === 0 && players.every((player) => player.hand.length === 0)) {
       winner = players[0].health === players[1].health ? game.nextAttacker : players[0].health > players[1].health ? 0 : 1;
@@ -296,6 +339,7 @@ export default function Home() {
       players,
       deck,
       trump,
+      event,
       round: newRound,
       exchange,
       attacker: game.nextAttacker,
@@ -304,6 +348,7 @@ export default function Home() {
       attackCard: null,
       defenseCard: null,
       attackBonus: 0,
+      secretAttack: false,
       discardCount: game.discardCount + 1 + (game.defenseCard ? 1 : 0),
       result: '',
       resultDetail: '',
@@ -311,6 +356,8 @@ export default function Home() {
     };
     setGame(next);
     setSelected(null);
+    setSecretChoice(false);
+    if (startsNewRound) setEventReveal(true);
     if (winner !== null) setScreen('winner');
     else if (game.nextAttacker !== game.viewer) setPassTo(game.nextAttacker);
   };
@@ -341,7 +388,7 @@ export default function Home() {
   const opponent = game.players[1 - game.viewer];
   const selectedCard = self.hand.find((card) => card.id === selected) ?? null;
   const defending = game.phase === 'defend';
-  const selectedCanDefend = !!(selectedCard && game.attackCard && canDefend(selectedCard, game.attackCard, game.trump));
+  const selectedCanDefend = !!(selectedCard && game.attackCard && (game.secretAttack || canDefend(selectedCard, game.attackCard, game.trump, game.event)));
   const canAttack = selectedCard?.kind === 'strike';
 
   if (screen === 'winner') {
@@ -368,6 +415,7 @@ export default function Home() {
         <div className="round-label">
           <span>RONDA {game.round}</span>
           <b className={`trump trump-${game.trump}`}>{SUIT_DATA[game.trump].symbol} {SUIT_DATA[game.trump].label} domina</b>
+          <button className="event-chip" onClick={() => setEventReveal(true)} title="Ver evento de ronda"><i>{EVENTS[game.event].symbol}</i>{EVENTS[game.event].name}</button>
         </div>
         <div className="top-actions">
           <button className="icon-button" aria-label={soundOn ? 'Desactivar sonido' : 'Activar sonido'} title={soundOn ? 'Desactivar sonido' : 'Activar sonido'} onClick={() => setSoundOn(!soundOn)}>{soundOn ? '♪' : '∅'}</button>
@@ -390,7 +438,7 @@ export default function Home() {
 
         <div className="combat-slots">
           <div className="combat-slot attack-slot">
-            {game.attackCard ? <CardFace card={game.attackCard} table /> : <span>ATAQUE</span>}
+            {game.attackCard ? game.secretAttack && game.phase === 'defend' ? <div className="secret-table-card"><CardBack /><strong>?</strong></div> : <CardFace card={game.attackCard} table /> : <span>ATAQUE</span>}
             {game.attackBonus > 0 && <i className="bonus-tag">+{game.attackBonus}</i>}
           </div>
           <div className={`clash-mark ${game.attackCard ? 'active' : ''}`}>VS</div>
@@ -407,7 +455,8 @@ export default function Home() {
 
       <section className="turn-panel" aria-live="polite">
         {game.phase === 'attack' && <><b>Tu ataque</b><span>Elige una carta. Las cartas altas golpean más, pero cuesta más defenderlas.</span></>}
-        {game.phase === 'defend' && <><b>Tu defensa</b><span>Supera el valor con el mismo símbolo, usa {SUIT_DATA[game.trump].label} o juega un escudo.</span></>}
+        {game.phase === 'defend' && game.secretAttack && <><b>Ataque oculto</b><span>Arriesga cualquier carta para intentar bloquearlo o usa un escudo seguro.</span></>}
+        {game.phase === 'defend' && !game.secretAttack && <><b>Tu defensa</b><span>Supera el valor con el mismo símbolo, usa {game.event === 'eclipse' ? 'el mismo símbolo' : SUIT_DATA[game.trump].label} o juega un escudo.</span></>}
         {game.phase === 'result' && <><b>{game.result}</b><span>{game.resultDetail}</span></>}
       </section>
 
@@ -415,13 +464,16 @@ export default function Home() {
         <Health player={self} side="self" />
         <div className="player-hand" aria-label={`Mano de ${self.name}`}>
           {self.hand.map((card, index) => {
-            const invalidDefense = defending && !!game.attackCard && !canDefend(card, game.attackCard, game.trump);
+            const invalidDefense = defending && !!game.attackCard && !game.secretAttack && !canDefend(card, game.attackCard, game.trump, game.event);
             const invalidAttack = game.phase === 'attack' && card.kind !== 'strike';
             return <CardFace card={card} key={card.id} index={index} selected={selected === card.id} disabled={game.phase === 'result'} onClick={() => setSelected(selected === card.id ? null : card.id)} compact={invalidDefense || invalidAttack} />;
           })}
         </div>
         <div className="action-dock">
-          {game.phase === 'attack' && <button className="play-button" disabled={!canAttack} onClick={playAttack}>{game.players[game.attacker].pulse === 3 ? 'Atacar con +2' : 'Jugar ataque'}</button>}
+          {game.phase === 'attack' && <>
+            <button className={`secret-button ${secretChoice ? 'active' : ''}`} disabled={game.secretUsed[game.attacker]} onClick={() => setSecretChoice(!secretChoice)} title="Oculta una carta una vez por partida">{game.secretUsed[game.attacker] ? 'Oculta usada' : secretChoice ? 'Oculta lista' : 'Jugada oculta'}</button>
+            <button className="play-button" disabled={!canAttack} onClick={playAttack}>{secretChoice ? 'Jugar boca abajo' : game.players[game.attacker].pulse === 3 ? 'Atacar con +2' : 'Jugar ataque'}</button>
+          </>}
           {game.phase === 'defend' && <>
             <button className="take-hit-button" onClick={() => resolveDefense(null)}>Recibir golpe</button>
             <button className="play-button defend-button" disabled={!selectedCanDefend} onClick={() => resolveDefense(selectedCard)}>Bloquear</button>
@@ -439,8 +491,24 @@ export default function Home() {
           <button className="primary-button" onClick={() => setPassTo(null)}>Ya lo tengo</button>
         </div>
       )}
+      {eventReveal && <EventModal event={game.event} round={game.round} onClose={() => setEventReveal(false)} />}
       {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
     </main>
+  );
+}
+
+function EventModal({ event, round, onClose }: { event: EventId; round: number; onClose: () => void }) {
+  const data = EVENTS[event];
+  return (
+    <div className="event-backdrop" role="dialog" aria-modal="true" aria-labelledby="event-title">
+      <section className={`event-modal event-${event}`}>
+        <span className="event-symbol" aria-hidden="true">{data.symbol}</span>
+        <p className="eyebrow">Evento de la ronda {round}</p>
+        <h2 id="event-title">{data.name}</h2>
+        <p>{data.description}</p>
+        <button className="primary-button" onClick={onClose}>Entrar en la arena</button>
+      </section>
+    </div>
   );
 }
 
@@ -456,6 +524,8 @@ function RulesModal({ onClose }: { onClose: () => void }) {
           <li><b>Defiende.</b><span>Usa el mismo símbolo con mayor valor, el símbolo dominante o un escudo.</span></li>
           <li><b>Cambia el control.</b><span>Si bloqueas, tú atacas. Si recibes el golpe, el rival repite.</span></li>
           <li><b>Llena Impulso.</b><span>Tres defensas exitosas dan +2 al siguiente ataque.</span></li>
+          <li><b>Lee el evento.</b><span>Cada cuatro duelos aparece una regla temporal que cambia la estrategia.</span></li>
+          <li><b>Engaña.</b><span>Cada jugador puede lanzar una única carta boca abajo durante la partida.</span></li>
         </ol>
         <p className="rules-win">Gana quien deje al rival sin vida.</p>
         <button className="primary-button" onClick={onClose}>Entendido</button>
